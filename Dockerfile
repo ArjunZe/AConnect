@@ -2,15 +2,16 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Copy only the package.json since you don't have a lockfile
+# Copy package.json explicitly 
 COPY package.json ./
 
-# Force npm to install dependencies directly from the package.json
-RUN npm install
+# Clean npm cache and force install express manually alongside others
+RUN npm cache clean --force
+RUN npm install express cors dotenv express-rate-limit helmet simple-peer socket.io
 
-# Copy the rest of your application code (server.js, etc.)
+# Copy the rest of your server code (server.js, etc.)
 COPY . .
 
 EXPOSE 8080
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]

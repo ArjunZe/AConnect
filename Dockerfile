@@ -5,11 +5,11 @@ WORKDIR /app
 # Copy package.json explicitly 
 COPY package.json ./
 
-# Install dependencies
+# Clean npm cache and force install express manually alongside others
 RUN npm cache clean --force
-RUN npm install
+RUN npm install express cors dotenv express-rate-limit helmet simple-peer socket.io
 
-# Copy application source
+# Copy the rest of your server code (server.js, etc.)
 COPY . .
 
 # Set default environment variables

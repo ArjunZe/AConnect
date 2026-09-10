@@ -14,7 +14,6 @@ COPY . .
 
 # Set default environment variables
 ENV PORT=9876
-ENV DEFAULT_ROOM_PASSWORD=turtle
 EXPOSE 9876
 
 CMD ["node", "server.js"]

@@ -12,8 +12,10 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 9876;
+const HOST = process.env.HOST || '0.0.0.0';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const DEFAULT_ROOM_PASSWORD = String(process.env.DEFAULT_ROOM_PASSWORD || 'turtle').trim();
 const ROOM_IDLE_DELETE_MS = 5 * 60 * 1000;
 const MAX_MESSAGE_HISTORY = 50;
 const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
@@ -21,7 +23,7 @@ const MESSAGE_RATE_LIMIT_WINDOW = 60 * 1000;
 const MESSAGE_RATE_LIMIT_MAX = 30;
 
 app.use(helmet({ contentSecurityPolicy: false }));
-app.use(cors({ origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN }));
+app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '2mb' }));
 
 const httpLimiter = rateLimit({
@@ -32,11 +34,16 @@ const httpLimiter = rateLimit({
 });
 app.use(httpLimiter);
 
+// Serve chat.html as default root page
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'chat.html'));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const io = new Server(server, {
   cors: {
-    origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN,
+    origin: '*',
     methods: ['GET', 'POST']
   }
 });
@@ -213,7 +220,7 @@ function pushRoomMessage(roomName, message) {
   }
 }
 
-ensureRoom('Default', { ownerId: null, password: '', messageTTL: 0 });
+ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 5 * 60 * 1000 });
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
@@ -343,6 +350,31 @@ chatNamespace.on('connection', (socket) => {
     });
     emitRoomList(chatNamespace);
     callback?.({ ok: true, messageId: message.id });
+  });
+
+  socket.on('purge-room-messages', () => {
+    const user = users.get(socket.id);
+    if (!user || !user.room || !rooms.has(user.room)) return;
+    const room = rooms.get(user.room);
+
+    room.messages.forEach((msg) => {
+      const timer = messageExpiryTimers.get(msg.id);
+      if (timer) {
+        clearTimeout(timer);
+        messageExpiryTimers.delete(msg.id);
+      }
+    });
+
+    room.messages = [];
+    room.messageCount = 0;
+
+    chatNamespace.to(user.room).emit('room-purged', {
+      room: user.room,
+      purgedBy: user.username,
+      timestamp: new Date().toISOString()
+    });
+
+    emitRoomList(chatNamespace);
   });
 
   socket.on('send-file', (payload, callback) => {
@@ -538,6 +570,6 @@ app.get('*', (_, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-server.listen(PORT, () => {
-  console.log(`AnonConnect server running at http://localhost:${PORT}`);
+server.listen(PORT, HOST, () => {
+  console.log(`AnonConnect server running at http://${HOST}:${PORT}`);
 });

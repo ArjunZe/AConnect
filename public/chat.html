@@ -3,74 +3,159 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AnonConnect Chat</title>
+  <title>AConnect • Sci-Fi Word Cloud Chat</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css" />
-  <link rel="stylesheet" href="/css/components.css" />
   <link rel="stylesheet" href="/css/chat.css" />
 </head>
 <body>
-  <div id="connectionBanner" class="connection-banner hidden">Disconnected... attempting reconnect</div>
+  <!-- Ambient Sci-Fi Background Particle Canvas -->
+  <canvas id="sciFiBgCanvas"></canvas>
+
+  <div id="connectionBanner" class="connection-banner hidden">⚠️ Connection Lost... Re-establishing Quantum Link</div>
+
   <div class="chat-layout">
-    <aside class="sidebar-left">
-      <h1 class="logo">AnonConnect</h1>
-      <div class="card user-card">
-        <div class="label">You are</div>
-        <div id="usernameDisplay" class="username-display">Anonymous---</div>
-        <span class="badge" id="onlineCount">Online: 0</span>
-      </div>
-      <div class="rooms-header">
-        <h2>Rooms</h2>
-        <button class="btn btn-ghost" id="createRoomBtn">Create Room</button>
-      </div>
-      <ul id="roomList" class="room-list"></ul>
-    </aside>
-
-    <main class="chat-main">
-      <header class="chat-header">
-        <div>
-          <h2 id="currentRoomName">Default</h2>
-          <p id="currentRoomCount">0 users</p>
+    <!-- Header HUD -->
+    <header class="chat-hud-header">
+      <div class="header-left">
+        <div class="sci-logo">
+          <span class="sci-logo-icon">❖</span> ACONNECT
         </div>
-        <a class="btn btn-secondary" id="startCallBtn" href="/call.html">Start Call</a>
-      </header>
+      </div>
 
-      <section id="messageFeed" class="message-feed"></section>
-      <div id="typingIndicator" class="typing-indicator"></div>
+      <div class="room-hud-info">
+        <span class="room-title" id="currentRoomName">Default</span>
+        <span class="room-ttl-indicator" id="roomTTLBadge">⚡ 5m TTL</span>
+        <span class="room-user-count" id="currentRoomCount" style="color: var(--text-secondary); font-size: 13px;">(0 users)</span>
+      </div>
+    </header>
 
-      <form id="messageForm" class="message-form">
-        <button type="button" id="emojiToggle" class="btn btn-ghost" title="Emoji">😊</button>
-        <button type="button" id="fileButton" class="btn btn-ghost" title="Image">📎</button>
+    <!-- Main HUD Body -->
+    <div class="chat-hud-body">
+      <!-- Backdrop Overlay for Mobile Sidebars -->
+      <div id="sidebarOverlay" class="sidebar-overlay"></div>
+
+      <!-- Left Sidebar: Rooms & User Profile -->
+      <aside class="sidebar-left" id="sidebarLeft">
+        <div class="user-hud-card">
+          <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em;">Callsign</div>
+          <div id="usernameDisplay" class="username-tag">Anonymous---</div>
+          <div style="margin-top: 0.4rem; font-size: 12px; color: var(--accent-cyan);" id="onlineCount">● Online: 0</div>
+        </div>
+
+        <div class="sidebar-section-title">
+          <span>Rooms Matrix</span>
+          <button class="btn btn-ghost" id="createRoomBtn" style="padding: 0.2rem 0.6rem; font-size: 12px;">+ New</button>
+        </div>
+        <ul id="roomList" class="room-list"></ul>
+      </aside>
+
+      <!-- Center Viewport: True Canvas Word Cloud Container -->
+      <main class="word-cloud-viewport">
+        <!-- HUD Sci-Fi Toolbar -->
+        <div class="cloud-hud-toolbar">
+          <div class="hud-mode-group">
+            <select id="hudViewSelect" class="sci-select" title="Switch Cloud View Matrix">
+              <option value="orbit" selected>🌐 Orbit View</option>
+              <option value="chrono">⏱️ Chrono Flow</option>
+              <option value="heatmap">🔥 Heatmap</option>
+            </select>
+
+            <select id="hudNavSelect" class="sci-select nav-select-mobile" title="Rooms & Nodes Menu">
+              <option value="" disabled selected>❖ Nav Bar</option>
+              <option value="rooms">📁 Rooms Matrix</option>
+              <option value="active">👥 Connected Nodes</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Floating Call Button (Bottom Left Corner Above Input) -->
+        <a id="topCallBtn" class="sci-call-float-btn" href="/call.html" title="Start Voice/Video Call">⚡ Call</a>
+
+        <!-- Floating Purge Icon Button (Bottom Right Corner Above Input) -->
+        <button id="purgeMessagesBtn" class="sci-purge-icon-btn" title="Destroy all room messages immediately">🗑️</button>
+
+        <!-- Main Word Cloud Canvas -->
+        <div class="canvas-wrapper">
+          <canvas id="wordCloudCanvas"></canvas>
+          <div id="emptyCloudNotice" class="empty-cloud-notice">
+            <div class="sci-pulse-icon">☁️</div>
+            <div style="font-size: 18px; font-weight: 700; color: var(--accent-cyan); margin-top: 0.5rem;">QUANTUM CLOUD EMPTY</div>
+            <div style="font-size: 13px; color: var(--text-secondary); margin-top: 0.25rem;">Transmit a message below to generate the word cloud!</div>
+          </div>
+        </div>
+
+        <!-- HUD Inspect Popover for selected word/message -->
+        <div id="hudInspectCard" class="hud-inspect-card hidden">
+          <button id="closeInspectBtn" class="close-inspect-btn">✕</button>
+          <div class="inspect-header">
+            <span class="inspect-author" id="inspectAuthor">Anonymous</span>
+            <span class="inspect-time" id="inspectTime">12:00 PM</span>
+          </div>
+          <div class="inspect-body" id="inspectText">Full message text goes here...</div>
+          <div class="inspect-image-wrap hidden" id="inspectImageWrap">
+            <img id="inspectImage" src="" alt="attachment" />
+          </div>
+          <div class="inspect-reactions" id="inspectReactions"></div>
+          <div class="inspect-quick-react">
+            <span style="font-size: 12px; color: var(--text-secondary);">React:</span>
+            <button class="inspect-react-btn" data-emoji="👍">👍</button>
+            <button class="inspect-react-btn" data-emoji="❤️">❤️</button>
+            <button class="inspect-react-btn" data-emoji="🔥">🔥</button>
+            <button class="inspect-react-btn" data-emoji="🚀">🚀</button>
+          </div>
+        </div>
+
+        <div id="typingIndicator" class="typing-indicator" style="position: absolute; bottom: 10px; left: 20px; z-index: 10; font-size: 12px; color: var(--accent-cyan);"></div>
+      </main>
+
+      <!-- Right Sidebar: Active Users -->
+      <aside class="sidebar-right" id="sidebarRight">
+        <div class="sidebar-section-title">
+          <span>Connected Nodes</span>
+        </div>
+        <ul id="roomUsers" class="user-list"></ul>
+      </aside>
+    </div>
+
+    <!-- Bottom Control Deck -->
+    <footer class="chat-hud-dock">
+      <form id="messageForm" class="dock-form">
+        <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji Panel">😊</button>
+        <button type="button" id="fileButton" class="dock-action-btn" title="Attach Hologram/Image">📎</button>
         <input type="file" id="fileInput" class="hidden" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" />
-        <textarea id="messageInput" class="input-field" maxlength="500" placeholder="Type message..."></textarea>
-        <button type="submit" class="btn btn-primary">Send</button>
+        
+        <div class="dock-input-wrap">
+          <input id="messageInput" class="dock-input" maxlength="500" placeholder="Transmit message to cloud..." autocomplete="off" />
+        </div>
+        
+        <button type="submit" class="dock-send-btn">Transmit ➔</button>
       </form>
-      <div id="emojiPanel" class="emoji-panel hidden"></div>
-    </main>
 
-    <aside class="sidebar-right" id="usersSidebar">
-      <h3>Active Users</h3>
-      <ul id="roomUsers" class="user-list"></ul>
-    </aside>
+      <div id="emojiPanel" class="emoji-panel hidden"></div>
+    </footer>
   </div>
 
+  <!-- Create Room Modal -->
   <div id="roomModal" class="modal-backdrop hidden">
     <div class="modal">
-      <h3>Create Room</h3>
-      <input type="text" id="roomNameInput" class="input-field" maxlength="40" placeholder="Room name" />
-      <input type="password" id="roomPasswordInput" class="input-field spaced-input" maxlength="40" placeholder="Password (optional)" />
-      <label class="ttl-label" for="roomTTLSelect">Disappearing messages</label>
-      <select id="roomTTLSelect" class="input-field">
-        <option value="0">Off</option>
-        <option value="300000">5 minutes</option>
+      <h3>Create Quantum Room</h3>
+      <input type="text" id="roomNameInput" class="input-field" maxlength="40" placeholder="Room designation" />
+      <input type="password" id="roomPasswordInput" class="input-field" style="margin-top: 0.75rem;" maxlength="40" placeholder="Encryption key (optional)" />
+      
+      <label class="ttl-label" for="roomTTLSelect" style="display: block; margin-top: 0.75rem; font-size: 12px; color: var(--text-secondary);">Disappearing Messages</label>
+      <select id="roomTTLSelect" class="input-field" style="margin-top: 0.35rem;">
+        <option value="300000" selected>5 minutes (Default)</option>
+        <option value="0">Off (Persistent)</option>
         <option value="3600000">1 hour</option>
         <option value="86400000">24 hours</option>
       </select>
+
       <div class="modal-actions">
         <button id="cancelRoom" class="btn btn-ghost">Cancel</button>
-        <button id="saveRoom" class="btn btn-primary">Create</button>
+        <button id="saveRoom" class="btn btn-primary">Initialize Room</button>
       </div>
     </div>
   </div>

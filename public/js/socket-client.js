@@ -1,5 +1,5 @@
 export function createSocket(namespace = '/chat') {
-  const socket = io(namespace, { transports: ['websocket', 'polling'] });
+  const socket = io(namespace, { transports: ['polling', 'websocket'] });
   const banner = document.getElementById('connectionBanner');
 
   socket.on('connect', () => {

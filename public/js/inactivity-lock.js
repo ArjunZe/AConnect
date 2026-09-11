@@ -1,20 +1,25 @@
 /**
  * Inactivity Lock & Blur System
- * Blurs whole screen after 5 minutes of inactivity.
+ * Tracks last message / activity timestamp for each user.
+ * Blurs whole screen after 5 minutes of inactivity since last message/activity.
  * Touching the screen / reloading page asks for password to remove blur.
  */
 
 let INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 const STORAGE_KEY_LOCKED = 'aconnect_screen_locked';
 
-let inactivityTimer = null;
+let lastActivityTime = Date.now();
+let checkInterval = null;
 let isLocked = false;
 let socketInstance = null;
-let lastMouseX = -1;
-let lastMouseY = -1;
 
 export function setLockSocket(socket) {
   socketInstance = socket;
+}
+
+export function registerUserActivity() {
+  lastActivityTime = Date.now();
+  if (isLocked) return;
 }
 
 export function initInactivityLock(socket = null) {
@@ -27,30 +32,18 @@ export function initInactivityLock(socket = null) {
     if (localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') {
       lockScreen();
     } else {
-      resetInactivityTimer();
+      lastActivityTime = Date.now();
     }
 
-    // Activity listeners for real user actions
-    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
-    activityEvents.forEach((evt) => {
-      window.addEventListener(evt, handleUserActivity, { passive: true });
-    });
+    // Interval checking message/activity time every 2 seconds
+    if (checkInterval) clearInterval(checkInterval);
+    checkInterval = setInterval(checkInactivity, 2000);
 
-    // Mousemove with >10px delta threshold to prevent laptop trackpad sensor noise from resetting timer
-    window.addEventListener('mousemove', (e) => {
-      if (lastMouseX >= 0 && lastMouseY >= 0) {
-        const deltaX = Math.abs(e.pageX - lastMouseX);
-        const deltaY = Math.abs(e.pageY - lastMouseY);
-        if (deltaX > 10 || deltaY > 10) {
-          handleUserActivity();
-          lastMouseX = e.pageX;
-          lastMouseY = e.pageY;
-        }
-      } else {
-        lastMouseX = e.pageX;
-        lastMouseY = e.pageY;
-      }
-    }, { passive: true });
+    // Track user actions (typing, sending messages, clicking UI)
+    const userEvents = ['keydown', 'mousedown', 'touchstart', 'click'];
+    userEvents.forEach((evt) => {
+      window.addEventListener(evt, () => registerUserActivity(), { passive: true });
+    });
 
     // Touch screen or click anywhere on locked screen asks for password
     window.addEventListener('touchstart', handleLockedTouch, { passive: false });
@@ -66,9 +59,12 @@ function ensureDOMReady(fn) {
   }
 }
 
-function handleUserActivity() {
+function checkInactivity() {
   if (isLocked) return;
-  resetInactivityTimer();
+  const elapsed = Date.now() - lastActivityTime;
+  if (elapsed >= INACTIVITY_TIMEOUT_MS) {
+    lockScreen();
+  }
 }
 
 function handleLockedTouch(e) {
@@ -81,13 +77,6 @@ function handleLockedTouch(e) {
   
   e.preventDefault();
   askPasswordPrompt();
-}
-
-function resetInactivityTimer() {
-  if (inactivityTimer) clearTimeout(inactivityTimer);
-  inactivityTimer = setTimeout(() => {
-    lockScreen();
-  }, INACTIVITY_TIMEOUT_MS);
 }
 
 export function lockScreen() {
@@ -115,6 +104,7 @@ export function lockScreen() {
 export function unlockScreen() {
   isLocked = false;
   localStorage.removeItem(STORAGE_KEY_LOCKED);
+  lastActivityTime = Date.now();
   
   if (document.body) {
     document.body.classList.remove('screen-locked');
@@ -130,8 +120,6 @@ export function unlockScreen() {
 
   const errorEl = document.getElementById('lockErrorMessage');
   if (errorEl) errorEl.textContent = '';
-
-  resetInactivityTimer();
 }
 
 function askPasswordPrompt() {
@@ -215,8 +203,9 @@ function shakeCard(card) {
 // Global window helpers for developer/user testing
 window.lockScreen = lockScreen;
 window.unlockScreen = unlockScreen;
+window.registerUserActivity = registerUserActivity;
 window.setInactivityTimeout = (seconds) => {
   INACTIVITY_TIMEOUT_MS = seconds * 1000;
-  resetInactivityTimer();
+  lastActivityTime = Date.now();
   console.log(`Inactivity lock timeout set to ${seconds} seconds.`);
 };

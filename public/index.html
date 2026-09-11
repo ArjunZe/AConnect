@@ -39,7 +39,10 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script type="module">
+    import { initInactivityLock } from '/js/inactivity-lock.js';
     const socket = io('/chat');
+    initInactivityLock(socket);
+
     const online = document.getElementById('landingOnline');
     socket.on('online-count', (count) => {
       online.textContent = `Online: ${count}`;

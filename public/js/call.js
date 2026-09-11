@@ -1,8 +1,10 @@
 import { createSocket } from './socket-client.js';
 import { copyToClipboard, formatTimestamp, generateRoomCode, sanitizeMessage } from './utils.js';
 import { addRemoteStream, createOffer, createPeerConnection, getUserMediaStream, handleAnswer, handleIceCandidate, handleOffer, handlePeerDisconnect } from './webrtc.js';
+import { initInactivityLock } from './inactivity-lock.js';
 
 const socket = createSocket('/call');
+initInactivityLock(socket);
 const params = new URLSearchParams(location.search);
 const roomCode = (params.get('room') || generateRoomCode()).toUpperCase();
 const peers = new Map();

@@ -1,8 +1,10 @@
 import { createSocket } from './socket-client.js';
 import { debounce, generateUsername, sanitizeMessage, showNotification } from './utils.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
+import { initInactivityLock } from './inactivity-lock.js';
 
 const socket = createSocket('/chat');
+initInactivityLock(socket);
 
 // UI Elements
 const usernameDisplay = document.getElementById('usernameDisplay');
@@ -138,6 +140,7 @@ function joinRoom(roomName, isPrivate = false) {
       return;
     }
 
+    if (password) localStorage.setItem('aconnect_room_pass', password);
     currentRoom = roomName;
     currentRoomNameEl.textContent = roomName;
     if (typingIndicator) typingIndicator.textContent = '';

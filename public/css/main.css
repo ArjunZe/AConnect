@@ -206,3 +206,139 @@ a {
   gap: 0.75rem;
   margin-top: 1.25rem;
 }
+
+/* Screen Inactivity Lock & Blur System */
+body.screen-locked > *:not(#inactivityLockOverlay) {
+  filter: blur(30px) brightness(0.3) !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  transition: filter 0.3s ease;
+}
+
+#inactivityLockOverlay {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 999999;
+  background: rgba(4, 7, 18, 0.94);
+  backdrop-filter: blur(35px);
+  -webkit-backdrop-filter: blur(35px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+#inactivityLockOverlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.lock-card {
+  width: min(420px, 92%);
+  background: rgba(13, 19, 41, 0.96);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 12px;
+  padding: 2rem 1.75rem;
+  box-shadow: 0 0 40px rgba(0, 243, 255, 0.35);
+  text-align: center;
+  animation: lockCardPop 0.3s ease-out;
+}
+
+@keyframes lockCardPop {
+  from { transform: scale(0.92); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.lock-icon {
+  font-size: 42px;
+  margin-bottom: 0.75rem;
+  display: inline-block;
+  animation: pulseGlow 2s infinite ease-in-out;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px var(--accent-cyan)); }
+  50% { transform: scale(1.08); filter: drop-shadow(0 0 16px var(--accent-cyan)); }
+}
+
+.lock-title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent-cyan);
+  margin-bottom: 0.5rem;
+}
+
+.lock-desc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 1.5rem;
+  line-height: 1.4;
+}
+
+.lock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lock-input-group {
+  position: relative;
+  width: 100%;
+}
+
+.lock-input {
+  width: 100%;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-bright);
+  border-radius: 8px;
+  padding: 0.85rem 1rem;
+  font-family: var(--hud-font);
+  font-size: 16px;
+  text-align: center;
+  letter-spacing: 0.1em;
+  transition: all 0.2s ease;
+}
+
+.lock-input:focus {
+  outline: none;
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 15px var(--accent-glow);
+}
+
+.lock-btn {
+  width: 100%;
+  justify-content: center;
+  padding: 0.85rem;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.lock-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 0.75rem;
+  min-height: 18px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.shake {
+  animation: lockShake 0.4s ease-in-out;
+}
+
+@keyframes lockShake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-8px); }
+  40%, 80% { transform: translateX(8px); }
+}
+

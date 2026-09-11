@@ -220,6 +220,26 @@ function pushRoomMessage(roomName, message) {
   }
 }
 
+function verifyLockPassword(password, socketId) {
+  const cleanPass = String(password || '').trim();
+  if (!cleanPass) return false;
+  if (cleanPass === DEFAULT_ROOM_PASSWORD) return true;
+
+  if (socketId && users.has(socketId)) {
+    const user = users.get(socketId);
+    if (user?.room && rooms.has(user.room)) {
+      const room = rooms.get(user.room);
+      if (room.password && room.password === cleanPass) return true;
+    }
+  }
+
+  for (const [, room] of rooms.entries()) {
+    if (room.password && room.password === cleanPass) return true;
+  }
+
+  return false;
+}
+
 ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 5 * 60 * 1000 });
 
 chatNamespace.on('connection', (socket) => {
@@ -229,6 +249,14 @@ chatNamespace.on('connection', (socket) => {
   socket.emit('welcome', { username, socketId: socket.id });
   emitOnlineCount();
   emitRoomList(socket);
+
+  socket.on('verify-lock-password', ({ password }, callback) => {
+    if (verifyLockPassword(password, socket.id)) {
+      callback?.({ ok: true });
+    } else {
+      callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
+    }
+  });
 
   socket.on('get-rooms', () => emitRoomList(socket));
 
@@ -481,6 +509,14 @@ chatNamespace.on('connection', (socket) => {
 });
 
 callNamespace.on('connection', (socket) => {
+  socket.on('verify-lock-password', ({ password }, callback) => {
+    if (verifyLockPassword(password, socket.id)) {
+      callback?.({ ok: true });
+    } else {
+      callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
+    }
+  });
+
   socket.on('join-call-room', (roomId) => {
     const safeRoomId = String(roomId || '').trim().slice(0, 32);
     if (!safeRoomId) return;

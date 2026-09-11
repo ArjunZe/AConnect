@@ -4,12 +4,14 @@
  * Touching the screen / reloading page asks for password to remove blur.
  */
 
-const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+let INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 const STORAGE_KEY_LOCKED = 'aconnect_screen_locked';
 
 let inactivityTimer = null;
 let isLocked = false;
 let socketInstance = null;
+let lastMouseX = -1;
+let lastMouseY = -1;
 
 export function setLockSocket(socket) {
   socketInstance = socket;
@@ -18,24 +20,50 @@ export function setLockSocket(socket) {
 export function initInactivityLock(socket = null) {
   if (socket) socketInstance = socket;
 
-  createOverlayDOM();
+  ensureDOMReady(() => {
+    createOverlayDOM();
 
-  // Check if page was previously locked or reloaded while locked
-  if (localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') {
-    lockScreen();
-  } else {
-    resetInactivityTimer();
-  }
+    // Check if page was previously locked or reloaded while locked
+    if (localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') {
+      lockScreen();
+    } else {
+      resetInactivityTimer();
+    }
 
-  // Global user activity listeners
-  const events = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'touchmove', 'scroll', 'pointerdown', 'click'];
-  events.forEach((evt) => {
-    window.addEventListener(evt, handleUserActivity, { passive: true });
+    // Activity listeners for real user actions
+    const activityEvents = ['mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+    activityEvents.forEach((evt) => {
+      window.addEventListener(evt, handleUserActivity, { passive: true });
+    });
+
+    // Mousemove with >10px delta threshold to prevent laptop trackpad sensor noise from resetting timer
+    window.addEventListener('mousemove', (e) => {
+      if (lastMouseX >= 0 && lastMouseY >= 0) {
+        const deltaX = Math.abs(e.pageX - lastMouseX);
+        const deltaY = Math.abs(e.pageY - lastMouseY);
+        if (deltaX > 10 || deltaY > 10) {
+          handleUserActivity();
+          lastMouseX = e.pageX;
+          lastMouseY = e.pageY;
+        }
+      } else {
+        lastMouseX = e.pageX;
+        lastMouseY = e.pageY;
+      }
+    }, { passive: true });
+
+    // Touch screen or click anywhere on locked screen asks for password
+    window.addEventListener('touchstart', handleLockedTouch, { passive: false });
+    window.addEventListener('click', handleLockedTouch, { passive: false });
   });
+}
 
-  // Touch or tap anywhere on locked screen prompts password input focus
-  window.addEventListener('touchstart', handleLockedInteraction);
-  window.addEventListener('click', handleLockedInteraction);
+function ensureDOMReady(fn) {
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    fn();
+  } else {
+    document.addEventListener('DOMContentLoaded', fn);
+  }
 }
 
 function handleUserActivity() {
@@ -43,12 +71,16 @@ function handleUserActivity() {
   resetInactivityTimer();
 }
 
-function handleLockedInteraction(e) {
+function handleLockedTouch(e) {
   if (!isLocked) return;
-  const lockInput = document.getElementById('inactivityLockInput');
-  if (lockInput && document.activeElement !== lockInput) {
-    lockInput.focus();
+  
+  // If target is inside the lock form input or button, let form handle it directly
+  if (e.target.closest('#inactivityLockForm')) {
+    return;
   }
+  
+  e.preventDefault();
+  askPasswordPrompt();
 }
 
 function resetInactivityTimer() {
@@ -61,7 +93,10 @@ function resetInactivityTimer() {
 export function lockScreen() {
   isLocked = true;
   localStorage.setItem(STORAGE_KEY_LOCKED, 'true');
-  document.body.classList.add('screen-locked');
+  
+  if (document.body) {
+    document.body.classList.add('screen-locked');
+  }
 
   const overlay = document.getElementById('inactivityLockOverlay');
   if (overlay) {
@@ -80,7 +115,10 @@ export function lockScreen() {
 export function unlockScreen() {
   isLocked = false;
   localStorage.removeItem(STORAGE_KEY_LOCKED);
-  document.body.classList.remove('screen-locked');
+  
+  if (document.body) {
+    document.body.classList.remove('screen-locked');
+  }
 
   const overlay = document.getElementById('inactivityLockOverlay');
   if (overlay) {
@@ -94,6 +132,13 @@ export function unlockScreen() {
   if (errorEl) errorEl.textContent = '';
 
   resetInactivityTimer();
+}
+
+function askPasswordPrompt() {
+  const typed = prompt('🔒 Terminal Inactivity Lock\nEnter clearance password to unlock:');
+  if (typed !== null) {
+    verifyPassword(typed);
+  }
 }
 
 function createOverlayDOM() {
@@ -121,39 +166,41 @@ function createOverlayDOM() {
   const form = document.getElementById('inactivityLockForm');
   form?.addEventListener('submit', (e) => {
     e.preventDefault();
-    verifyAndUnlock();
+    e.stopPropagation();
+    const input = document.getElementById('inactivityLockInput');
+    verifyPassword(input?.value || '');
   });
 }
 
-function verifyAndUnlock() {
-  const input = document.getElementById('inactivityLockInput');
+function verifyPassword(password) {
+  const cleanPass = String(password || '').trim();
   const errorEl = document.getElementById('lockErrorMessage');
   const card = document.getElementById('lockCard');
-  const password = (input?.value || '').trim();
 
-  if (!password) {
+  if (!cleanPass) {
     if (errorEl) errorEl.textContent = 'Password required to unlock.';
     shakeCard(card);
     return;
   }
 
   if (socketInstance && socketInstance.connected) {
-    socketInstance.emit('verify-lock-password', { password }, (res) => {
+    socketInstance.emit('verify-lock-password', { password: cleanPass }, (res) => {
       if (res?.ok) {
         unlockScreen();
       } else {
         if (errorEl) errorEl.textContent = res?.error || 'Access Denied: Invalid Password.';
         shakeCard(card);
+        alert('Access Denied: Invalid Password.');
       }
     });
   } else {
-    // Fallback check if socket not connected yet
     const storedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';
-    if (password === storedPass || password === 'turtle') {
+    if (cleanPass === storedPass || cleanPass === 'turtle') {
       unlockScreen();
     } else {
       if (errorEl) errorEl.textContent = 'Access Denied: Invalid Password.';
       shakeCard(card);
+      alert('Access Denied: Invalid Password.');
     }
   }
 }
@@ -164,3 +211,12 @@ function shakeCard(card) {
   void card.offsetWidth;
   card.classList.add('shake');
 }
+
+// Global window helpers for developer/user testing
+window.lockScreen = lockScreen;
+window.unlockScreen = unlockScreen;
+window.setInactivityTimeout = (seconds) => {
+  INACTIVITY_TIMEOUT_MS = seconds * 1000;
+  resetInactivityTimer();
+  console.log(`Inactivity lock timeout set to ${seconds} seconds.`);
+};

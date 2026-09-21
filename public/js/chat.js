@@ -490,7 +490,12 @@ let isLiveVideoActive = false;
 let isLocalCamOff = false;
 let isVideoMinimized = false;
 let localVideoStream = null;
+let localMediaPromise = null;
 const videoPeers = new Map(); // peerId -> RTCPeerConnection
+
+function getMySocketId() {
+  return socket?.id || mySocketId || '';
+}
 
 function setVideoButtonsActive(active) {
   if (liveVideoBtn) liveVideoBtn.classList.toggle('active', active);
@@ -498,58 +503,124 @@ function setVideoButtonsActive(active) {
   if (dockVideoBtn) dockVideoBtn.classList.toggle('active-video', active);
 }
 
-function initVideoPeer(targetPeerId, initiator = true) {
-  if (videoPeers.has(targetPeerId)) return videoPeers.get(targetPeerId);
+function attachOpponentStream(remoteStream) {
+  if (!opponentVideo) return;
+
+  // Guarantee 100% silent live video: kill and disable all audio tracks
+  remoteStream.getAudioTracks().forEach((track) => {
+    track.enabled = false;
+    track.stop();
+  });
+
+  opponentVideo.muted = true;
+  opponentVideo.defaultMuted = true;
+  opponentVideo.volume = 0;
+  opponentVideo.playsInline = true;
+  opponentVideo.setAttribute('muted', '');
+  opponentVideo.setAttribute('playsinline', '');
+  opponentVideo.setAttribute('autoplay', '');
+
+  if (opponentVideo.srcObject !== remoteStream) {
+    opponentVideo.srcObject = remoteStream;
+  }
+
+  const playVideo = () => {
+    const p = opponentVideo.play();
+    if (p !== undefined) {
+      p.catch((err) => {
+        console.warn('[WebRTC] Autoplay waiting on user interaction or metadata:', err);
+      });
+    }
+  };
+
+  playVideo();
+  opponentVideo.onloadedmetadata = playVideo;
+
+  remoteStream.getVideoTracks().forEach((track) => {
+    track.onunmute = playVideo;
+  });
+
+  if (opponentVideoPlaceholder) {
+    opponentVideoPlaceholder.classList.add('hidden');
+  }
+  if (videoStatusText) {
+    videoStatusText.textContent = 'Opponent visual link established';
+  }
+}
+
+function initVideoPeer(targetPeerId, initiator = false) {
+  if (videoPeers.has(targetPeerId)) {
+    const existingPeer = videoPeers.get(targetPeerId);
+    if (localVideoStream) {
+      localVideoStream.getVideoTracks().forEach((track) => {
+        const senders = existingPeer.getSenders();
+        const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+        if (!hasTrack) {
+          existingPeer.addTrack(track, localVideoStream);
+        }
+      });
+    }
+    return existingPeer;
+  }
 
   const peer = createPeerConnection({
     localStream: localVideoStream,
     onIceCandidate: (candidate) => {
+      const payload = candidate?.toJSON ? candidate.toJSON() : candidate;
       socket.emit('video-feed-ice-candidate', {
         room: currentRoom,
         target: targetPeerId,
-        candidate
+        candidate: payload
       });
     },
     onTrack: (remoteStream) => {
-      // Guarantee 100% silent live video: kill and disable all audio tracks
-      remoteStream.getAudioTracks().forEach((track) => {
-        track.enabled = false;
-        track.stop();
-      });
-
-      if (opponentVideo) {
-        opponentVideo.muted = true;
-        opponentVideo.volume = 0;
-        opponentVideo.srcObject = remoteStream;
-        opponentVideo.play().catch(() => {});
-      }
-      if (opponentVideoPlaceholder) {
-        opponentVideoPlaceholder.classList.add('hidden');
-      }
-      if (videoStatusText) {
-        videoStatusText.textContent = 'Opponent visual link established';
+      attachOpponentStream(remoteStream);
+    },
+    onConnectionStateChange: (state) => {
+      console.log(`[WebRTC ${targetPeerId}] Connection state:`, state);
+      if (state === 'connected') {
+        if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.add('hidden');
+        if (videoStatusText) videoStatusText.textContent = 'Opponent visual link connected';
+      } else if (state === 'disconnected' || state === 'failed') {
+        if (videoStatusText) videoStatusText.textContent = 'Visual link reconnecting...';
       }
     }
   });
 
+  peer._isPolite = getMySocketId() < targetPeerId;
   videoPeers.set(targetPeerId, peer);
 
   if (initiator) {
-    createOffer(peer)
-      .then((offer) => {
+    (async () => {
+      if (localMediaPromise) {
+        await localMediaPromise;
+      }
+      if (localVideoStream) {
+        localVideoStream.getVideoTracks().forEach((track) => {
+          const senders = peer.getSenders();
+          const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+          if (!hasTrack) {
+            peer.addTrack(track, localVideoStream);
+          }
+        });
+      }
+      try {
+        const offer = await createOffer(peer);
         socket.emit('video-feed-offer', {
           room: currentRoom,
           target: targetPeerId,
-          offer
+          offer: peer.localDescription || offer
         });
-      })
-      .catch((err) => console.error('Error creating video offer:', err));
+      } catch (err) {
+        console.error('[WebRTC] Error creating video offer:', err);
+      }
+    })();
   }
 
   return peer;
 }
 
-async function startLiveVideo() {
+async function startLiveVideo(joinRoomFeed = true) {
   if (isLiveVideoActive) return;
   isLiveVideoActive = true;
   setVideoButtonsActive(true);
@@ -562,33 +633,52 @@ async function startLiveVideo() {
     opponentVideoPlaceholder.classList.remove('hidden');
   }
   if (videoStatusText) {
-    videoStatusText.textContent = 'Requesting camera (silent link)...';
+    videoStatusText.textContent = 'Requesting camera (silent visual link)...';
   }
 
-  try {
-    localVideoStream = await getVideoOnlyStream();
-    if (localVideoPreview) {
-      localVideoPreview.muted = true;
-      localVideoPreview.volume = 0;
-      localVideoPreview.srcObject = localVideoStream;
-      localVideoPreview.play().catch(() => {});
-    }
-    if (localPipWrap) localPipWrap.classList.remove('hidden');
-    if (videoStatusText) videoStatusText.textContent = 'Camera active. Waiting for opponent...';
-  } catch (err) {
-    console.warn('Local camera unavailable, switching to view-only mode:', err);
-    if (localPipWrap) localPipWrap.classList.add('hidden');
-    if (videoStatusText) videoStatusText.textContent = 'View-only mode (camera unavailable)';
-    showNotification('📹 Live Video', 'Camera unavailable. Linked in view-only mode to watch opponent.');
-  }
-
-  socket.emit('video-feed-join', { room: currentRoom }, async (res) => {
-    if (res?.peers && res.peers.length > 0) {
-      for (const peerId of res.peers) {
-        await initVideoPeer(peerId, true);
+  localMediaPromise = getVideoOnlyStream()
+    .then((stream) => {
+      localVideoStream = stream;
+      if (localVideoPreview) {
+        localVideoPreview.muted = true;
+        localVideoPreview.defaultMuted = true;
+        localVideoPreview.volume = 0;
+        localVideoPreview.playsInline = true;
+        localVideoPreview.setAttribute('muted', '');
+        localVideoPreview.setAttribute('playsinline', '');
+        localVideoPreview.setAttribute('autoplay', '');
+        localVideoPreview.srcObject = localVideoStream;
+        localVideoPreview.play().catch(() => {});
       }
-    }
-  });
+      if (localPipWrap) localPipWrap.classList.remove('hidden');
+      if (videoStatusText && (!opponentVideo || !opponentVideo.srcObject)) {
+        videoStatusText.textContent = 'Camera active. Waiting for opponent...';
+      }
+      return stream;
+    })
+    .catch((err) => {
+      console.warn('[WebRTC] Camera unavailable, switching to view-only mode:', err);
+      localVideoStream = null;
+      if (localPipWrap) localPipWrap.classList.add('hidden');
+      if (videoStatusText && (!opponentVideo || !opponentVideo.srcObject)) {
+        videoStatusText.textContent = 'View-only mode (camera unavailable)';
+      }
+      showNotification('📹 Live Video', 'Camera unavailable. Linked in view-only mode to watch opponent.');
+      return null;
+    });
+
+  await localMediaPromise;
+
+  if (joinRoomFeed) {
+    socket.emit('video-feed-join', { room: currentRoom }, async (res) => {
+      if (res?.peers && res.peers.length > 0) {
+        for (const peerId of res.peers) {
+          // As newcomer, initiate offer to existing active peers
+          initVideoPeer(peerId, true);
+        }
+      }
+    });
+  }
 }
 
 function stopLiveVideo(notifyServer = true) {
@@ -600,15 +690,23 @@ function stopLiveVideo(notifyServer = true) {
     localVideoStream.getTracks().forEach((track) => track.stop());
     localVideoStream = null;
   }
-  if (localVideoPreview) localVideoPreview.srcObject = null;
+  localMediaPromise = null;
+
+  if (localVideoPreview) {
+    localVideoPreview.srcObject = null;
+  }
 
   videoPeers.forEach((peer) => {
     try { peer.close(); } catch (_) {}
   });
   videoPeers.clear();
 
-  if (opponentVideo) opponentVideo.srcObject = null;
-  if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.remove('hidden');
+  if (opponentVideo) {
+    opponentVideo.srcObject = null;
+  }
+  if (opponentVideoPlaceholder) {
+    opponentVideoPlaceholder.classList.remove('hidden');
+  }
 
   if (liveVideoHUD) {
     liveVideoHUD.classList.add('hidden');
@@ -624,7 +722,7 @@ async function toggleLiveVideo() {
   if (isLiveVideoActive) {
     stopLiveVideo(true);
   } else {
-    await startLiveVideo();
+    await startLiveVideo(true);
   }
 }
 
@@ -653,7 +751,8 @@ toggleSelfCamBtn?.addEventListener('click', () => {
 socket.on('video-feed-peer-joined', async ({ peerId, username }) => {
   if (isLiveVideoActive) {
     showNotification('📹 Opponent Connected', `${username || 'Opponent'} joined silent video feed`);
-    await initVideoPeer(peerId, true);
+    // Existing active peer does not initiate - waits for newcomer's offer
+    initVideoPeer(peerId, false);
   } else {
     showNotification('📹 Live Video Available', `${username || 'Opponent'} started live video feed! Click 📹 to connect.`);
     setVideoButtonsActive(true);
@@ -662,42 +761,80 @@ socket.on('video-feed-peer-joined', async ({ peerId, username }) => {
 
 socket.on('video-feed-offer', async ({ from, offer, username }) => {
   if (!isLiveVideoActive) {
-    await startLiveVideo();
+    // Open in answer mode without emitting video-feed-join
+    await startLiveVideo(false);
   }
+  if (localMediaPromise) {
+    await localMediaPromise;
+  }
+
   let peer = videoPeers.get(from);
   if (!peer) {
     peer = initVideoPeer(from, false);
   }
+
+  // Ensure local tracks are attached before answering
+  if (localVideoStream) {
+    localVideoStream.getVideoTracks().forEach((track) => {
+      const senders = peer.getSenders();
+      const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+      if (!hasTrack) {
+        peer.addTrack(track, localVideoStream);
+      }
+    });
+  }
+
+  const isPolite = peer._isPolite;
+  const offerCollision = (peer.signalingState !== 'stable');
+
+  if (offerCollision) {
+    if (!isPolite) {
+      console.warn(`[WebRTC] Impolite peer (${getMySocketId()}) ignoring colliding offer from ${from}`);
+      return;
+    }
+    console.log(`[WebRTC] Polite peer (${getMySocketId()}) rolling back local description for offer from ${from}`);
+    try {
+      await peer.setLocalDescription({ type: 'rollback' });
+    } catch (err) {
+      console.warn('Rollback error:', err);
+    }
+  }
+
   try {
     const answer = await handleOffer(peer, offer);
     socket.emit('video-feed-answer', {
       room: currentRoom,
       target: from,
-      answer
+      answer: peer.localDescription || answer
     });
   } catch (err) {
-    console.error('Error handling video offer:', err);
+    console.error('[WebRTC] Error handling video offer:', err);
   }
 });
 
 socket.on('video-feed-answer', async ({ from, answer }) => {
   const peer = videoPeers.get(from);
-  if (peer) {
-    try {
-      await handleAnswer(peer, answer);
-    } catch (err) {
-      console.error('Error handling video answer:', err);
-    }
+  if (!peer) return;
+
+  if (peer.signalingState !== 'have-local-offer') {
+    console.warn(`[WebRTC] Ignoring answer in state: ${peer.signalingState}`);
+    return;
+  }
+
+  try {
+    await handleAnswer(peer, answer);
+  } catch (err) {
+    console.error('[WebRTC] Error handling video answer:', err);
   }
 });
 
 socket.on('video-feed-ice-candidate', async ({ from, candidate }) => {
   const peer = videoPeers.get(from);
-  if (peer) {
+  if (peer && candidate) {
     try {
       await handleIceCandidate(peer, candidate);
     } catch (err) {
-      console.error('Error handling video ICE candidate:', err);
+      console.error('[WebRTC] Error handling ICE candidate:', err);
     }
   }
 });
@@ -710,7 +847,7 @@ socket.on('video-feed-peer-left', ({ peerId }) => {
   if (videoPeers.size === 0) {
     if (opponentVideo) opponentVideo.srcObject = null;
     if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.remove('hidden');
-    if (videoStatusText) videoStatusText.textContent = 'Opponent left video feed';
+    if (videoStatusText) videoStatusText.textContent = 'Opponent left visual link';
   }
 });
 

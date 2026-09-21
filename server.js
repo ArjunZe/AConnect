@@ -605,6 +605,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-feed-offer', ({ target, offer, room }) => {
+    if (!target || typeof target !== 'string') return;
     const user = users.get(socket.id);
     chatNamespace.to(target).emit('video-feed-offer', {
       from: socket.id,
@@ -615,6 +616,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-feed-answer', ({ target, answer, room }) => {
+    if (!target || typeof target !== 'string') return;
     chatNamespace.to(target).emit('video-feed-answer', {
       from: socket.id,
       answer,
@@ -623,6 +625,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-feed-ice-candidate', ({ target, candidate, room }) => {
+    if (!target || typeof target !== 'string') return;
     chatNamespace.to(target).emit('video-feed-ice-candidate', {
       from: socket.id,
       candidate,

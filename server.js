@@ -71,12 +71,13 @@ function randomUsername() {
 function normalizeRoomOptions(raw = {}) {
   const name = String(raw?.name || raw?.roomName || '').trim().slice(0, 40);
   const password = String(raw?.password || '').trim().slice(0, 40);
-  const ttl = Number(raw?.messageTTL || 0);
+  const rawTTL = raw?.messageTTL !== undefined && raw?.messageTTL !== null ? Number(raw.messageTTL) : 60 * 60 * 1000;
   const allowedTTLs = [0, 5 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000];
+  const messageTTL = allowedTTLs.includes(rawTTL) ? rawTTL : 60 * 60 * 1000;
   return {
     name,
     password,
-    messageTTL: allowedTTLs.includes(ttl) ? ttl : 0
+    messageTTL
   };
 }
 
@@ -240,7 +241,32 @@ function verifyLockPassword(password, socketId) {
   return false;
 }
 
-ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 5 * 60 * 1000 });
+function destroyRoomMessagesSilently(roomName) {
+  const room = rooms.get(roomName);
+  if (!room) return;
+
+  room.messages.forEach((msg) => {
+    const timer = messageExpiryTimers.get(msg.id);
+    if (timer) {
+      clearTimeout(timer);
+      messageExpiryTimers.delete(msg.id);
+    }
+  });
+
+  room.messages = [];
+  room.messageCount = 0;
+
+  chatNamespace.to(roomName).emit('room-purged', {
+    room: roomName,
+    silent: true,
+    purgedBy: 'SYSTEM',
+    timestamp: new Date().toISOString()
+  });
+
+  emitRoomList(chatNamespace);
+}
+
+ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 60 * 60 * 1000 });
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
@@ -250,10 +276,13 @@ chatNamespace.on('connection', (socket) => {
   emitOnlineCount();
   emitRoomList(socket);
 
-  socket.on('verify-lock-password', ({ password }, callback) => {
+  socket.on('verify-lock-password', ({ password, roomName }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
       callback?.({ ok: true });
     } else {
+      const user = users.get(socket.id);
+      const targetRoom = roomName || user?.room || 'Default';
+      destroyRoomMessagesSilently(targetRoom);
       callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
     }
   });
@@ -290,6 +319,7 @@ chatNamespace.on('connection', (socket) => {
 
     const roomToJoin = rooms.get(targetRoom);
     if (roomToJoin.password && roomToJoin.password !== suppliedPassword) {
+      destroyRoomMessagesSilently(targetRoom);
       callback?.({ ok: false, error: 'Invalid room password.' });
       socket.emit('join-room-error', { room: targetRoom, error: 'Invalid room password.' });
       return;

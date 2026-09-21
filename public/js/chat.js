@@ -24,6 +24,14 @@ const roomTTLSelect = document.getElementById('roomTTLSelect');
 const emojiPanel = document.getElementById('emojiPanel');
 const fileInput = document.getElementById('fileInput');
 
+// Article Theme Elements
+const themeToggleBtn = document.getElementById('themeToggleBtn');
+const articleReaderView = document.getElementById('articleReaderView');
+const articleHeadline = document.getElementById('articleHeadline');
+const articleContent = document.getElementById('articleContent');
+const articleComposeForm = document.getElementById('articleComposeForm');
+const articleInput = document.getElementById('articleInput');
+
 // Mobile drawer buttons
 const leftSidebarToggle = document.getElementById('leftSidebarToggle');
 const rightSidebarToggle = document.getElementById('rightSidebarToggle');
@@ -33,10 +41,13 @@ const sidebarRight = document.getElementById('sidebarRight');
 const emojis = ['😀', '😂', '😍', '😎', '🤖', '🔥', '🎉', '✨', '🙌', '🚀', '💡', '⚡', '👏', '🥳', '🤔', '😇', '🛸', '🌌'];
 
 let currentRoom = 'Default';
-let currentMessageTTL = 5 * 60 * 1000;
+window.currentRoomName = currentRoom;
+let currentMessageTTL = 60 * 60 * 1000; // 1 hour default group timer
 let mySocketId = '';
 let myUsername = localStorage.getItem('anon_username') || generateUsername();
 let pendingPasswords = new Map();
+let allMessages = [];
+let currentTheme = localStorage.getItem('aconnect_theme') || 'scifi';
 
 localStorage.setItem('anon_username', myUsername);
 if (usernameDisplay) usernameDisplay.textContent = myUsername;
@@ -48,6 +59,194 @@ const cloudEngine = new SciFiCloudEngine('wordCloudCanvas', 'sciFiBgCanvas');
 cloudEngine.onReactionClick = (messageId, emoji) => {
   socket.emit('add-reaction', { messageId, emoji });
 };
+
+// Hook up silent message destruction for wrong password attempts
+window.onDestroyMessagesSilently = () => {
+  allMessages = [];
+  cloudEngine.clear();
+  clearArticleMessages();
+};
+
+// Hook up login unlock completion
+window.onSuccessfulUnlock = (pass) => {
+  window.hasEnteredChat = true;
+  joinRoom(currentRoom || 'Default', false, pass);
+};
+
+// Theme Management
+function setTheme(theme) {
+  currentTheme = theme;
+  localStorage.setItem('aconnect_theme', theme);
+
+  if (theme === 'article') {
+    document.body.classList.add('theme-article');
+    articleReaderView?.classList.remove('hidden');
+    if (themeToggleBtn) {
+      themeToggleBtn.textContent = '❖ Sci-Fi Theme';
+      themeToggleBtn.title = 'Switch to Sci-Fi HUD View';
+    }
+    updateArticleHeader();
+    renderArticleMessages();
+  } else {
+    document.body.classList.remove('theme-article');
+    articleReaderView?.classList.add('hidden');
+    if (themeToggleBtn) {
+      themeToggleBtn.textContent = '📰 Article Theme';
+      themeToggleBtn.title = 'Switch to Article Theme (Stealth Reader)';
+    }
+    // Resize cloud canvas when switching back
+    window.dispatchEvent(new Event('resize'));
+  }
+}
+
+if (themeToggleBtn) {
+  themeToggleBtn.addEventListener('click', () => {
+    setTheme(currentTheme === 'article' ? 'scifi' : 'article');
+  });
+}
+
+function updateArticleHeader() {
+  if (articleHeadline) {
+    articleHeadline.textContent = `${currentRoom} Chronicle: Perspectives & Notes`;
+  }
+}
+
+function formatArticleTime(timestamp) {
+  if (!timestamp) return '';
+  try {
+    const d = new Date(timestamp);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function renderArticleMessages() {
+  if (!articleContent) return;
+  articleContent.innerHTML = '';
+
+  if (allMessages.length === 0) {
+    const emptyDiv = document.createElement('div');
+    emptyDiv.className = 'article-empty-state';
+    emptyDiv.innerHTML = '<p class="article-lead">This dispatch is currently awaiting initial field notes and drafts. Use the addendum form below to contribute to this record.</p>';
+    articleContent.appendChild(emptyDiv);
+    return;
+  }
+
+  allMessages.forEach((msg) => {
+    appendArticleMessageDOM(msg);
+  });
+}
+
+function appendArticleMessageDOM(msg) {
+  if (!articleContent) return;
+
+  const emptyState = articleContent.querySelector('.article-empty-state');
+  if (emptyState) emptyState.remove();
+
+  if (msg.type === 'system') {
+    const aside = document.createElement('aside');
+    aside.className = 'article-editorial-note';
+    aside.dataset.id = msg.id;
+    aside.innerHTML = `<em>Editorial note: ${escapeHtml(msg.text)}</em>`;
+    articleContent.appendChild(aside);
+    return;
+  }
+
+  if (msg.type === 'image') {
+    const figure = document.createElement('figure');
+    figure.className = 'article-figure';
+    figure.dataset.id = msg.id;
+    figure.innerHTML = `
+      <img src="${msg.imageData}" alt="Figure" class="article-figure-img" />
+      <figcaption class="article-figcaption">
+        <span class="article-fig-author">${escapeHtml(msg.username)}:</span> ${escapeHtml(msg.text || 'Submitted document excerpt.')}
+        <span style="float: right; color: #8c929a;">${formatArticleTime(msg.timestamp)}</span>
+      </figcaption>
+    `;
+    articleContent.appendChild(figure);
+    return;
+  }
+
+  // Text message styled as article prose paragraph
+  const articleBlock = document.createElement('article');
+  articleBlock.className = 'article-paragraph-block';
+  articleBlock.dataset.id = msg.id;
+
+  let reactionsHtml = '';
+  if (Array.isArray(msg.reactions) && msg.reactions.length > 0) {
+    reactionsHtml = `<div class="article-reactions">${msg.reactions.map((r) => `<span class="article-reaction-chip">${r.emoji} ${r.count}</span>`).join('')}</div>`;
+  }
+
+  articleBlock.innerHTML = `
+    <div class="article-paragraph-meta">
+      <span class="article-paragraph-author">${escapeHtml(msg.username)}</span>
+      <span class="article-paragraph-time">${formatArticleTime(msg.timestamp)}</span>
+    </div>
+    <p class="article-paragraph-text">${escapeHtml(msg.text)}</p>
+    ${reactionsHtml}
+  `;
+
+  articleContent.appendChild(articleBlock);
+
+  if (articleReaderView) {
+    articleReaderView.scrollTop = articleReaderView.scrollHeight;
+  }
+}
+
+function removeArticleMessage(messageId) {
+  const el = articleContent?.querySelector(`[data-id="${messageId}"]`);
+  if (el) el.remove();
+  if (allMessages.length === 0) {
+    renderArticleMessages();
+  }
+}
+
+function clearArticleMessages() {
+  allMessages = [];
+  renderArticleMessages();
+}
+
+// Handle Article Compose Form
+if (articleComposeForm) {
+  articleComposeForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitArticleNote();
+  });
+}
+
+if (articleInput) {
+  articleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      submitArticleNote();
+    }
+  });
+}
+
+function submitArticleNote() {
+  if (!articleInput) return;
+  const text = sanitizeMessage(articleInput.value);
+  if (!text) return;
+
+  socket.emit('send-message', { text, room: currentRoom }, (response) => {
+    if (response?.ok) {
+      articleInput.value = '';
+    } else if (response?.error) {
+      alert(response.error);
+    }
+  });
+}
 
 // Mobile Drawer & Overlay Management
 const sidebarOverlay = document.getElementById('sidebarOverlay');
@@ -127,8 +326,8 @@ function getOrAskPassword(roomName, isPrivate) {
   return typed;
 }
 
-function joinRoom(roomName, isPrivate = false) {
-  const password = getOrAskPassword(roomName, isPrivate);
+function joinRoom(roomName, isPrivate = false, knownPassword = '') {
+  const password = knownPassword || getOrAskPassword(roomName, isPrivate);
   if (isPrivate && !password) {
     showNotification('Access Denied', `Password required to join room "${roomName}".`, 'warning');
     return;
@@ -142,8 +341,10 @@ function joinRoom(roomName, isPrivate = false) {
 
     if (password) localStorage.setItem('aconnect_room_pass', password);
     currentRoom = roomName;
+    window.currentRoomName = roomName;
     currentRoomNameEl.textContent = roomName;
     if (typingIndicator) typingIndicator.textContent = '';
+    updateArticleHeader();
 
     // Close mobile drawers on join
     if (sidebarLeft) sidebarLeft.classList.remove('active');
@@ -154,7 +355,7 @@ function joinRoom(roomName, isPrivate = false) {
 function loadRooms(rooms) {
   roomListEl.innerHTML = '';
   const defaultRoomMissing = !rooms.some((room) => room.name === 'Default');
-  const renderRooms = defaultRoomMissing ? [{ name: 'Default', count: 0, isPrivate: false, messageTTL: 300000 }, ...rooms] : rooms;
+  const renderRooms = defaultRoomMissing ? [{ name: 'Default', count: 0, isPrivate: false, messageTTL: 3600000 }, ...rooms] : rooms;
 
   renderRooms.forEach((room) => {
     const li = document.createElement('li');
@@ -240,9 +441,9 @@ document.getElementById('saveRoom')?.addEventListener('click', () => {
     roomModal.classList.add('hidden');
     roomNameInput.value = '';
     roomPasswordInput.value = '';
-    roomTTLSelect.value = '300000';
+    roomTTLSelect.value = '3600000';
     if (password) pendingPasswords.set(roomName, password);
-    joinRoom(roomName, Boolean(password));
+    joinRoom(roomName, Boolean(password), password);
   });
 });
 
@@ -301,7 +502,11 @@ socket.on('welcome', (data) => {
   myUsername = data.username || myUsername;
   if (usernameDisplay) usernameDisplay.textContent = myUsername;
   showNotification('AConnect Link Established', `Identified as ${myUsername}`);
-  joinRoom('Default', true);
+
+  if (window.hasEnteredChat) {
+    const savedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';
+    joinRoom('Default', false, savedPass);
+  }
 });
 
 socket.on('online-count', (count) => {
@@ -314,12 +519,14 @@ socket.on('room-created', () => socket.emit('get-rooms'));
 
 socket.on('room-joined', (data) => {
   currentRoom = data.room;
+  window.currentRoomName = data.room;
   currentMessageTTL = data.messageTTL || 0;
 
   if (roomTTLBadge) {
     if (currentMessageTTL > 0) {
       const mins = Math.round(currentMessageTTL / 60000);
-      roomTTLBadge.textContent = `⚡ ${mins}-Min Expire`;
+      const ttlLabel = mins >= 60 ? `${Math.round(mins / 60)}h` : `${mins}m`;
+      roomTTLBadge.textContent = `⚡ ${ttlLabel} TTL`;
       roomTTLBadge.classList.remove('hidden');
     } else {
       roomTTLBadge.textContent = `♾️ Persistent`;
@@ -328,39 +535,75 @@ socket.on('room-joined', (data) => {
   }
 
   updateRoomUsers(data.users);
-  cloudEngine.setMessages(data.history || [], currentMessageTTL, mySocketId);
+  allMessages = (data.history || []).slice();
+  cloudEngine.setMessages(allMessages, currentMessageTTL, mySocketId);
+  renderArticleMessages();
+  updateArticleHeader();
 });
 
 socket.on('room-users', updateRoomUsers);
 
 socket.on('new-message', (msg) => {
+  allMessages.push(msg);
   cloudEngine.addMessage(msg);
+  appendArticleMessageDOM(msg);
 });
 
 socket.on('system-message', ({ text }) => {
-  cloudEngine.addMessage({
+  const sysMsg = {
     id: `sys-${Date.now()}-${Math.random()}`,
     username: 'SYSTEM',
     text,
     type: 'system',
     timestamp: new Date().toISOString(),
     socketId: ''
-  });
+  };
+  allMessages.push(sysMsg);
+  cloudEngine.addMessage(sysMsg);
+  appendArticleMessageDOM(sysMsg);
 });
 
 socket.on('typing-start', ({ username }) => renderTypingIndicator(username));
 socket.on('typing-stop', () => renderTypingIndicator(''));
+
 socket.on('message-deleted', ({ messageId }) => {
+  allMessages = allMessages.filter((m) => m.id !== messageId);
   cloudEngine.removeMessage(messageId);
+  removeArticleMessage(messageId);
 });
 
 socket.on('reaction-updated', ({ messageId, reactions }) => {
   cloudEngine.updateReactions(messageId, reactions);
+  const msg = allMessages.find((m) => m.id === messageId);
+  if (msg) {
+    msg.reactions = reactions;
+    const block = articleContent?.querySelector(`[data-id="${messageId}"]`);
+    if (block) {
+      let rContainer = block.querySelector('.article-reactions');
+      if (!rContainer) {
+        rContainer = document.createElement('div');
+        rContainer.className = 'article-reactions';
+        block.appendChild(rContainer);
+      }
+      rContainer.innerHTML = reactions.map((r) => `<span class="article-reaction-chip">${r.emoji} ${r.count}</span>`).join('');
+    }
+  }
 });
 
-socket.on('room-purged', ({ purgedBy }) => {
+socket.on('room-purged', (data = {}) => {
+  allMessages = [];
   cloudEngine.clear();
-  showNotification('🔥 Room Purged', `All messages destroyed by ${purgedBy}!`);
+  clearArticleMessages();
+  if (!data.silent && data.purgedBy) {
+    showNotification('🔥 Room Purged', `All messages destroyed by ${data.purgedBy}!`);
+  }
+});
+
+socket.on('join-room-error', () => {
+  // Silent clear on failed room access
+  allMessages = [];
+  cloudEngine.clear();
+  clearArticleMessages();
 });
 
 const purgeMessagesBtn = document.getElementById('purgeMessagesBtn');
@@ -373,4 +616,5 @@ if (purgeMessagesBtn) {
 }
 
 setupEmojiPicker();
+setTheme(currentTheme);
 socket.emit('get-rooms');

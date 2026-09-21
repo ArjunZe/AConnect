@@ -1,8 +1,8 @@
 /**
- * Inactivity Lock & Blur System
- * Tracks last message / activity timestamp for each user.
- * Blurs whole screen after 5 minutes of inactivity since last message/activity.
- * Touching the screen / reloading page asks for password to remove blur.
+ * Inactivity Lock, Login Clearance & Screen Blur System
+ * - When logging in before entering chat, the screen is blurred.
+ * - Blurs whole screen after 5 minutes of inactivity since last activity.
+ * - Entering wrong password destroys all messages silently.
  */
 
 let INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
@@ -12,6 +12,7 @@ let lastActivityTime = Date.now();
 let checkInterval = null;
 let isLocked = false;
 let socketInstance = null;
+let currentMode = 'login'; // 'login' | 'inactivity'
 
 export function setLockSocket(socket) {
   socketInstance = socket;
@@ -28,9 +29,11 @@ export function initInactivityLock(socket = null) {
   ensureDOMReady(() => {
     createOverlayDOM();
 
-    // Check if page was previously locked or reloaded while locked
-    if (localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') {
-      lockScreen();
+    // Before entering chat, screen is always blurred for login
+    if (document.body.classList.contains('screen-locked') || (!document.body.classList.contains('landing-body') && !window.hasEnteredChat)) {
+      lockScreen({ mode: 'login' });
+    } else if (localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') {
+      lockScreen({ mode: 'inactivity' });
     } else {
       lastActivityTime = Date.now();
     }
@@ -45,7 +48,7 @@ export function initInactivityLock(socket = null) {
       window.addEventListener(evt, () => registerUserActivity(), { passive: true });
     });
 
-    // Touch screen or click anywhere on locked screen asks for password
+    // Touch screen or click anywhere on locked screen focuses password input
     window.addEventListener('touchstart', handleLockedTouch, { passive: false });
     window.addEventListener('click', handleLockedTouch, { passive: false });
   });
@@ -60,31 +63,47 @@ function ensureDOMReady(fn) {
 }
 
 function checkInactivity() {
-  if (isLocked) return;
+  if (isLocked || !window.hasEnteredChat) return;
   const elapsed = Date.now() - lastActivityTime;
   if (elapsed >= INACTIVITY_TIMEOUT_MS) {
-    lockScreen();
+    lockScreen({ mode: 'inactivity' });
   }
 }
 
 function handleLockedTouch(e) {
   if (!isLocked) return;
   
-  // If target is inside the lock form input or button, let form handle it directly
   if (e.target.closest('#inactivityLockForm')) {
     return;
   }
   
-  e.preventDefault();
-  askPasswordPrompt();
+  const lockInput = document.getElementById('inactivityLockInput');
+  if (lockInput) {
+    lockInput.focus();
+  }
 }
 
-export function lockScreen() {
+export function lockScreen(options = {}) {
   isLocked = true;
+  currentMode = options.mode || (window.hasEnteredChat ? 'inactivity' : 'login');
   localStorage.setItem(STORAGE_KEY_LOCKED, 'true');
   
   if (document.body) {
     document.body.classList.add('screen-locked');
+  }
+
+  const titleEl = document.getElementById('lockTitle');
+  const descEl = document.getElementById('lockDesc');
+  const btnEl = document.getElementById('lockSubmitBtn');
+
+  if (currentMode === 'login') {
+    if (titleEl) titleEl.textContent = 'Security Clearance Required';
+    if (descEl) descEl.innerHTML = 'Screen blurred for privacy.<br>Enter clearance password to enter chat.';
+    if (btnEl) btnEl.textContent = 'Enter Chat ➔';
+  } else {
+    if (titleEl) titleEl.textContent = 'System Inactivity Lock';
+    if (descEl) descEl.innerHTML = 'Screen locked after 5 minutes of inactivity.<br>Enter clearance password to unlock.';
+    if (btnEl) btnEl.textContent = 'Unlock Screen ➔';
   }
 
   const overlay = document.getElementById('inactivityLockOverlay');
@@ -122,13 +141,6 @@ export function unlockScreen() {
   if (errorEl) errorEl.textContent = '';
 }
 
-function askPasswordPrompt() {
-  const typed = prompt('🔒 Terminal Inactivity Lock\nEnter clearance password to unlock:');
-  if (typed !== null) {
-    verifyPassword(typed);
-  }
-}
-
 function createOverlayDOM() {
   if (document.getElementById('inactivityLockOverlay')) return;
 
@@ -137,13 +149,13 @@ function createOverlayDOM() {
   overlay.innerHTML = `
     <div class="lock-card" id="lockCard">
       <div class="lock-icon">🔒</div>
-      <div class="lock-title">System Inactivity Lock</div>
-      <div class="lock-desc">Screen locked after 5 minutes of inactivity.<br>Touch screen or enter password to unlock.</div>
+      <div class="lock-title" id="lockTitle">Security Clearance Required</div>
+      <div class="lock-desc" id="lockDesc">Screen blurred for privacy.<br>Enter clearance password to enter chat.</div>
       <form class="lock-form" id="inactivityLockForm">
         <div class="lock-input-group">
           <input type="password" id="inactivityLockInput" class="lock-input" placeholder="Enter Clearance Password" autocomplete="off" />
         </div>
-        <button type="submit" class="btn btn-primary lock-btn">Unlock Screen ➔</button>
+        <button type="submit" id="lockSubmitBtn" class="btn btn-primary lock-btn">Enter Chat ➔</button>
       </form>
       <div class="lock-error" id="lockErrorMessage"></div>
     </div>
@@ -160,35 +172,49 @@ function createOverlayDOM() {
   });
 }
 
-function verifyPassword(password) {
+export function verifyPassword(password) {
   const cleanPass = String(password || '').trim();
   const errorEl = document.getElementById('lockErrorMessage');
   const card = document.getElementById('lockCard');
 
   if (!cleanPass) {
-    if (errorEl) errorEl.textContent = 'Password required to unlock.';
+    if (errorEl) errorEl.textContent = 'Password required.';
     shakeCard(card);
     return;
   }
 
-  if (socketInstance && socketInstance.connected) {
-    socketInstance.emit('verify-lock-password', { password: cleanPass }, (res) => {
-      if (res?.ok) {
-        unlockScreen();
-      } else {
-        if (errorEl) errorEl.textContent = res?.error || 'Access Denied: Invalid Password.';
-        shakeCard(card);
-        alert('Access Denied: Invalid Password.');
+  const targetRoom = window.currentRoomName || 'Default';
+
+  const handleResult = (res) => {
+    if (res?.ok) {
+      window.hasEnteredChat = true;
+      localStorage.setItem('aconnect_room_pass', cleanPass);
+      unlockScreen();
+      if (typeof window.onSuccessfulUnlock === 'function') {
+        window.onSuccessfulUnlock(cleanPass);
       }
+    } else {
+      // Wrong password: destroy all messages silently!
+      if (typeof window.onDestroyMessagesSilently === 'function') {
+        window.onDestroyMessagesSilently();
+      }
+      if (errorEl) errorEl.textContent = res?.error || 'Access Denied: Invalid Password.';
+      shakeCard(card);
+    }
+  };
+
+  if (socketInstance && socketInstance.connected) {
+    socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom }, handleResult);
+  } else if (socketInstance) {
+    socketInstance.once('connect', () => {
+      socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom }, handleResult);
     });
   } else {
     const storedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';
     if (cleanPass === storedPass || cleanPass === 'turtle') {
-      unlockScreen();
+      handleResult({ ok: true });
     } else {
-      if (errorEl) errorEl.textContent = 'Access Denied: Invalid Password.';
-      shakeCard(card);
-      alert('Access Denied: Invalid Password.');
+      handleResult({ ok: false, error: 'Access Denied: Invalid Password.' });
     }
   }
 }
@@ -203,6 +229,7 @@ function shakeCard(card) {
 // Global window helpers for developer/user testing
 window.lockScreen = lockScreen;
 window.unlockScreen = unlockScreen;
+window.verifyLockPassword = verifyPassword;
 window.registerUserActivity = registerUserActivity;
 window.setInactivityTimeout = (seconds) => {
   INACTIVITY_TIMEOUT_MS = seconds * 1000;

@@ -3,14 +3,14 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AConnect • Sci-Fi Word Cloud Chat</title>
+  <title>AConnect • Sci-Fi Word Cloud & Editorial Reader</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Charter:ital,wght@0,400;0,700;1,400&family=Inter:wght@400;500;600;700&family=Merriweather:ital,wght@0,400;0,700;1,400&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/chat.css" />
 </head>
-<body>
+<body class="screen-locked">
   <!-- Ambient Sci-Fi Background Particle Canvas -->
   <canvas id="sciFiBgCanvas"></canvas>
 
@@ -27,8 +27,12 @@
 
       <div class="room-hud-info">
         <span class="room-title" id="currentRoomName">Default</span>
-        <span class="room-ttl-indicator" id="roomTTLBadge">⚡ 5m TTL</span>
+        <span class="room-ttl-indicator" id="roomTTLBadge">⚡ 1h TTL</span>
         <span class="room-user-count" id="currentRoomCount" style="color: var(--text-secondary); font-size: 13px;">(0 users)</span>
+      </div>
+
+      <div class="header-right">
+        <button id="themeToggleBtn" type="button" class="hud-action-btn theme-toggle-btn" title="Toggle Article Theme / Sci-Fi HUD">📰 Article Theme</button>
       </div>
     </header>
 
@@ -40,19 +44,19 @@
       <!-- Left Sidebar: Rooms & User Profile -->
       <aside class="sidebar-left" id="sidebarLeft">
         <div class="user-hud-card">
-          <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em;">Callsign</div>
+          <div style="font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em;" id="userCardLabel">Callsign</div>
           <div id="usernameDisplay" class="username-tag">Anonymous---</div>
           <div style="margin-top: 0.4rem; font-size: 12px; color: var(--accent-cyan);" id="onlineCount">● Online: 0</div>
         </div>
 
         <div class="sidebar-section-title">
-          <span>Rooms Matrix</span>
+          <span id="roomsSectionTitle">Rooms Matrix</span>
           <button class="btn btn-ghost" id="createRoomBtn" style="padding: 0.2rem 0.6rem; font-size: 12px;">+ New</button>
         </div>
         <ul id="roomList" class="room-list"></ul>
       </aside>
 
-      <!-- Center Viewport: True Canvas Word Cloud Container -->
+      <!-- Center Viewport: Word Cloud Canvas & Article Reader View -->
       <main class="word-cloud-viewport">
         <!-- HUD Sci-Fi Toolbar -->
         <div class="cloud-hud-toolbar">
@@ -84,6 +88,41 @@
             <div class="sci-pulse-icon">☁️</div>
             <div style="font-size: 18px; font-weight: 700; color: var(--accent-cyan); margin-top: 0.5rem;">QUANTUM CLOUD EMPTY</div>
             <div style="font-size: 13px; color: var(--text-secondary); margin-top: 0.25rem;">Transmit a message below to generate the word cloud!</div>
+          </div>
+        </div>
+
+        <!-- Article Reader View (Stealth Theme - Reading Experience) -->
+        <div id="articleReaderView" class="article-reader-view hidden">
+          <div class="article-container">
+            <header class="article-header">
+              <div class="article-kicker">DISPATCHES & FIELD NOTES • ARCHIVE REPORT</div>
+              <h1 class="article-headline" id="articleHeadline">Default Chronicle: Perspectives & Notes</h1>
+              <div class="article-meta">
+                <span class="article-byline" id="articleByline">By Field Contributors</span>
+                <span class="article-dot">•</span>
+                <span class="article-read-time" id="articleReadTime">5 min read</span>
+                <span class="article-dot">•</span>
+                <span class="article-date" id="articleDate">Updated Today</span>
+              </div>
+            </header>
+            <hr class="article-hr" />
+            
+            <div class="article-content" id="articleContent">
+              <!-- Rendered as editorial paragraphs -->
+            </div>
+
+            <!-- Article Editorial Contribution Form -->
+            <section class="article-response-section">
+              <h3 class="article-response-title">Addendum & Marginalia</h3>
+              <p class="article-response-desc">Submit notes or observations to be appended to this record.</p>
+              <form id="articleComposeForm" class="article-compose-form">
+                <textarea id="articleInput" class="article-textarea" rows="2" placeholder="Draft paragraph or commentary here..."></textarea>
+                <div class="article-compose-bar">
+                  <span class="article-compose-hint">Press Enter to publish paragraph (Shift+Enter for newline)</span>
+                  <button type="submit" class="article-submit-btn">Publish to Record</button>
+                </div>
+              </form>
+            </section>
           </div>
         </div>
 
@@ -147,9 +186,9 @@
       
       <label class="ttl-label" for="roomTTLSelect" style="display: block; margin-top: 0.75rem; font-size: 12px; color: var(--text-secondary);">Disappearing Messages</label>
       <select id="roomTTLSelect" class="input-field" style="margin-top: 0.35rem;">
-        <option value="300000" selected>5 minutes (Default)</option>
+        <option value="3600000" selected>1 hour (Default)</option>
+        <option value="300000">5 minutes</option>
         <option value="0">Off (Persistent)</option>
-        <option value="3600000">1 hour</option>
         <option value="86400000">24 hours</option>
       </select>
 

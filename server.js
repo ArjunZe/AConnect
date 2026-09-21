@@ -71,9 +71,9 @@ function randomUsername() {
 function normalizeRoomOptions(raw = {}) {
   const name = String(raw?.name || raw?.roomName || '').trim().slice(0, 40);
   const password = String(raw?.password || '').trim().slice(0, 40);
-  const rawTTL = raw?.messageTTL !== undefined && raw?.messageTTL !== null ? Number(raw.messageTTL) : 60 * 60 * 1000;
+  const rawTTL = raw?.messageTTL !== undefined && raw?.messageTTL !== null ? Number(raw.messageTTL) : 24 * 60 * 60 * 1000;
   const allowedTTLs = [0, 5 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000];
-  const messageTTL = allowedTTLs.includes(rawTTL) ? rawTTL : 60 * 60 * 1000;
+  const messageTTL = allowedTTLs.includes(rawTTL) ? rawTTL : 24 * 60 * 60 * 1000;
   return {
     name,
     password,
@@ -266,7 +266,7 @@ function destroyRoomMessagesSilently(roomName) {
   emitRoomList(chatNamespace);
 }
 
-ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 60 * 60 * 1000 });
+ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 24 * 60 * 60 * 1000 });
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
@@ -285,6 +285,62 @@ chatNamespace.on('connection', (socket) => {
       destroyRoomMessagesSilently(targetRoom);
       callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
     }
+  });
+
+  socket.on('update-room-ttl', (payload = {}, callback) => {
+    const user = users.get(socket.id);
+    const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
+
+    if (!rooms.has(targetRoomName)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+
+    const allowedTTLs = [0, 5 * 60 * 1000, 60 * 60 * 1000, 24 * 60 * 60 * 1000];
+    const numericTTL = Number(payload?.messageTTL);
+    if (!allowedTTLs.includes(numericTTL)) {
+      callback?.({ ok: false, error: 'Invalid expiry timer value.' });
+      return;
+    }
+
+    const room = rooms.get(targetRoomName);
+    room.messageTTL = numericTTL;
+
+    // Reschedule or clear message expiry timers for existing messages
+    room.messages.forEach((msg) => {
+      const activeTimer = messageExpiryTimers.get(msg.id);
+      if (activeTimer) {
+        clearTimeout(activeTimer);
+        messageExpiryTimers.delete(msg.id);
+      }
+
+      if (numericTTL > 0) {
+        const msgTime = new Date(msg.timestamp).getTime();
+        const remainingMs = Math.max(0, (msgTime + numericTTL) - Date.now());
+        const newTimer = setTimeout(() => {
+          const currentR = rooms.get(targetRoomName);
+          if (!currentR) return;
+          const idx = currentR.messages.findIndex((item) => item.id === msg.id);
+          if (idx === -1) return;
+          currentR.messages.splice(idx, 1);
+          messageExpiryTimers.delete(msg.id);
+          chatNamespace.to(targetRoomName).emit('message-deleted', { messageId: msg.id, reason: 'expired' });
+          emitRoomList(chatNamespace);
+        }, remainingMs);
+        messageExpiryTimers.set(msg.id, newTimer);
+      }
+    });
+
+    chatNamespace.to(targetRoomName).emit('room-ttl-updated', {
+      room: targetRoomName,
+      messageTTL: numericTTL,
+      updatedBy: user ? user.username : 'User'
+    });
+
+    chatNamespace.emit('rooms-updated');
+    emitRoomList(chatNamespace);
+
+    callback?.({ ok: true, room: targetRoomName, messageTTL: numericTTL });
   });
 
   socket.on('get-rooms', () => emitRoomList(socket));

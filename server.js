@@ -51,6 +51,7 @@ const io = new Server(server, {
 const users = new Map(); // socketId -> { username, room, joinedAt }
 const rooms = new Map(); // roomName -> { users[], createdAt, messageCount, messages[], password, ownerId, messageTTL, cleanupTimer }
 const activeCalls = new Map(); // roomId -> { participants[], startedAt }
+const activeRoomVideoPeers = new Map(); // roomName -> Set of socketId for silent live video
 const messageExpiryTimers = new Map(); // messageId -> timeout
 const socketMessageBuckets = new Map(); // socketId -> timestamp[] for message/file rate limit
 
@@ -60,6 +61,18 @@ const allowedReactions = new Set(['👍', '❤️', '😂', '🔥', '👏', '�
 
 const chatNamespace = io.of('/chat');
 const callNamespace = io.of('/call');
+
+function removeSocketFromVideoFeed(socketId, roomName) {
+  if (!roomName || !activeRoomVideoPeers.has(roomName)) return;
+  const set = activeRoomVideoPeers.get(roomName);
+  if (set.has(socketId)) {
+    set.delete(socketId);
+    if (set.size === 0) {
+      activeRoomVideoPeers.delete(roomName);
+    }
+    chatNamespace.to(roomName).emit('video-feed-peer-left', { peerId: socketId });
+  }
+}
 
 function randomUsername() {
   const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
@@ -105,6 +118,7 @@ function scheduleRoomCleanup(roomName) {
       }
     });
 
+    activeRoomVideoPeers.delete(roomName);
     rooms.delete(roomName);
     chatNamespace.emit('rooms-updated');
     emitRoomList(chatNamespace);
@@ -387,6 +401,7 @@ chatNamespace.on('connection', (socket) => {
     if (user.room && rooms.has(user.room)) {
       const previousRoom = rooms.get(user.room);
       previousRoom.users = previousRoom.users.filter((id) => id !== socket.id);
+      removeSocketFromVideoFeed(socket.id, user.room);
       socket.leave(user.room);
       socket.to(user.room).emit('system-message', {
         text: `${user.username} left the room.`,
@@ -571,11 +586,62 @@ chatNamespace.on('connection', (socket) => {
     socket.to(user.room).emit('typing-stop', { socketId: socket.id });
   });
 
+  socket.on('video-feed-join', ({ room }, callback) => {
+    const user = users.get(socket.id);
+    const targetRoom = room || user?.room || 'Default';
+    if (!activeRoomVideoPeers.has(targetRoom)) {
+      activeRoomVideoPeers.set(targetRoom, new Set());
+    }
+    const peerSet = activeRoomVideoPeers.get(targetRoom);
+    const existingPeers = Array.from(peerSet).filter((id) => id !== socket.id);
+    peerSet.add(socket.id);
+
+    socket.to(targetRoom).emit('video-feed-peer-joined', {
+      peerId: socket.id,
+      username: user?.username || 'Anonymous'
+    });
+
+    callback?.({ ok: true, peers: existingPeers });
+  });
+
+  socket.on('video-feed-offer', ({ target, offer, room }) => {
+    const user = users.get(socket.id);
+    chatNamespace.to(target).emit('video-feed-offer', {
+      from: socket.id,
+      offer,
+      room,
+      username: user?.username || 'Anonymous'
+    });
+  });
+
+  socket.on('video-feed-answer', ({ target, answer, room }) => {
+    chatNamespace.to(target).emit('video-feed-answer', {
+      from: socket.id,
+      answer,
+      room
+    });
+  });
+
+  socket.on('video-feed-ice-candidate', ({ target, candidate, room }) => {
+    chatNamespace.to(target).emit('video-feed-ice-candidate', {
+      from: socket.id,
+      candidate,
+      room
+    });
+  });
+
+  socket.on('video-feed-leave', ({ room }) => {
+    const user = users.get(socket.id);
+    const targetRoom = room || user?.room || 'Default';
+    removeSocketFromVideoFeed(socket.id, targetRoom);
+  });
+
   socket.on('disconnect', () => {
     const user = users.get(socket.id);
     if (user?.room && rooms.has(user.room)) {
       const room = rooms.get(user.room);
       room.users = room.users.filter((id) => id !== socket.id);
+      removeSocketFromVideoFeed(socket.id, user.room);
 
       socket.to(user.room).emit('system-message', {
         text: `${user.username} disconnected.`,

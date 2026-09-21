@@ -112,6 +112,10 @@ export function lockScreen(options = {}) {
     document.body.classList.add('screen-locked');
   }
 
+  if (typeof window.onScreenLocked === 'function') {
+    try { window.onScreenLocked(); } catch (_) {}
+  }
+
   const titleEl = document.getElementById('lockTitle');
   const descEl = document.getElementById('lockDesc');
   const btnEl = document.getElementById('lockSubmitBtn');

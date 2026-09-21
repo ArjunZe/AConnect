@@ -13,9 +13,39 @@ export async function getUserMediaStream() {
   }
 }
 
+export async function getVideoOnlyStream() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        facingMode: 'user'
+      }
+    });
+    // Ensure any unexpected audio tracks are completely killed
+    stream.getAudioTracks().forEach((track) => {
+      track.enabled = false;
+      track.stop();
+    });
+    return stream;
+  } catch (error) {
+    throw new Error(`Unable to access camera: ${error.message}`);
+  }
+}
+
 export function createPeerConnection({ localStream, onIceCandidate, onTrack }) {
   const peer = new RTCPeerConnection(rtcConfig);
-  localStream.getTracks().forEach((track) => peer.addTrack(track, localStream));
+  if (localStream) {
+    localStream.getTracks().forEach((track) => {
+      // If audio track somehow present in localStream, skip it
+      if (track.kind === 'audio' && !localStream.hasAudio) {
+        track.stop();
+        return;
+      }
+      peer.addTrack(track, localStream);
+    });
+  }
 
   peer.onicecandidate = (event) => {
     if (event.candidate) onIceCandidate(event.candidate);
@@ -23,7 +53,14 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack }) {
 
   peer.ontrack = (event) => {
     const [stream] = event.streams;
-    onTrack(stream);
+    if (stream) {
+      // Guarantee silent video: stop and mute any incoming audio tracks
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        track.stop();
+      });
+      onTrack(stream, event.track);
+    }
   };
 
   return peer;

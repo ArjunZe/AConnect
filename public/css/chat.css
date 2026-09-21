@@ -686,12 +686,18 @@
   display: block;
 }
 
-/* Floating Call Button (Bottom Left Corner Above Input) */
-.sci-call-float-btn {
+/* Floating Action Buttons Left (Call & Silent Live Video) */
+.hud-floating-actions-left {
   position: absolute;
   bottom: 14px;
   left: 16px;
   z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sci-call-float-btn {
   background: linear-gradient(135deg, rgba(255, 0, 128, 0.4), rgba(0, 243, 255, 0.4));
   border: 1px solid var(--accent-pink);
   color: #ffffff;
@@ -717,6 +723,46 @@
   transform: scale(1.05);
 }
 
+.sci-video-float-btn {
+  background: linear-gradient(135deg, rgba(0, 243, 255, 0.3), rgba(0, 255, 170, 0.3));
+  border: 1px solid var(--accent-cyan);
+  color: #ffffff;
+  font-family: var(--hud-font);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  box-shadow: 0 0 14px rgba(0, 243, 255, 0.35);
+  backdrop-filter: blur(8px);
+  transition: all 0.2s ease;
+}
+
+.sci-video-float-btn:hover {
+  background: linear-gradient(135deg, rgba(0, 243, 255, 0.55), rgba(0, 255, 170, 0.55));
+  box-shadow: 0 0 20px var(--accent-cyan);
+  transform: scale(1.05);
+}
+
+.sci-video-float-btn.active,
+.sci-video-icon-btn.active,
+.dock-action-btn.active-video {
+  background: linear-gradient(135deg, rgba(0, 255, 170, 0.5), rgba(0, 243, 255, 0.5)) !important;
+  border-color: var(--accent-green) !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 16px var(--accent-green) !important;
+  animation: videoActivePulse 2s infinite ease-in-out;
+}
+
+@keyframes videoActivePulse {
+  0%, 100% { filter: drop-shadow(0 0 6px var(--accent-green)); }
+  50% { filter: drop-shadow(0 0 14px var(--accent-green)); }
+}
+
 /* Floating Action Buttons (Bottom Right Corner Above Input) */
 .hud-floating-actions-right {
   position: absolute;
@@ -728,6 +774,7 @@
   gap: 8px;
 }
 
+.sci-video-icon-btn,
 .sci-instant-lock-btn,
 .sci-purge-icon-btn {
   background: transparent;
@@ -739,6 +786,16 @@
   line-height: 1;
   outline: none;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sci-video-icon-btn {
+  filter: drop-shadow(0 0 6px rgba(0, 243, 255, 0.6));
+}
+
+.sci-video-icon-btn:hover {
+  opacity: 1;
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 14px rgba(0, 243, 255, 0.95));
 }
 
 .sci-instant-lock-btn {
@@ -755,10 +812,259 @@
   filter: drop-shadow(0 0 6px rgba(255, 42, 109, 0.4));
 }
 
-.sci-purge-icon-btn:hover {
-  opacity: 1;
-  transform: scale(1.25);
-  filter: drop-shadow(0 0 12px rgba(255, 42, 109, 0.9));
+/* Floating Holographic Live Video Feed HUD (Strictly Silent Opponent Cam) */
+.live-video-hud {
+  position: absolute;
+  top: 60px;
+  right: 18px;
+  width: 330px;
+  background: rgba(8, 14, 28, 0.94);
+  border: 1px solid var(--accent-cyan);
+  border-radius: 12px;
+  box-shadow: 0 0 25px rgba(0, 243, 255, 0.25), 0 8px 32px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(14px);
+  z-index: 85;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.live-video-hud.minimized .video-hud-body {
+  display: none;
+}
+
+.video-hud-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  background: rgba(0, 243, 255, 0.08);
+  border-bottom: 1px solid var(--border-bright);
+  user-select: none;
+}
+
+.video-hud-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.video-live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-green);
+  box-shadow: 0 0 8px var(--accent-green);
+  animation: livePulse 1.8s infinite ease-in-out;
+}
+
+@keyframes livePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.85); }
+}
+
+.video-hud-label {
+  font-family: var(--hud-font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent-cyan);
+}
+
+.video-silent-badge {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--accent-pink);
+  background: rgba(255, 42, 109, 0.15);
+  border: 1px solid rgba(255, 42, 109, 0.5);
+  border-radius: 10px;
+  padding: 1px 5px;
+}
+
+.video-hud-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.video-control-btn {
+  background: rgba(19, 27, 56, 0.8);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: 4px;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  font-size: 11px;
+  transition: all 0.15s ease;
+}
+
+.video-control-btn:hover {
+  border-color: var(--accent-cyan);
+  color: var(--text-primary);
+}
+
+.video-control-btn.close-btn:hover {
+  border-color: var(--accent-pink);
+  color: var(--accent-pink);
+}
+
+.video-screen-container {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  background: #000;
+  overflow: hidden;
+}
+
+.opponent-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.video-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  text-align: center;
+  background: radial-gradient(circle at center, rgba(0, 243, 255, 0.08) 0%, rgba(8, 14, 28, 0.98) 85%);
+  z-index: 2;
+}
+
+.video-placeholder.hidden {
+  display: none !important;
+}
+
+.radar-scan {
+  position: absolute;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  animation: radarSweep 2.5s infinite linear;
+  pointer-events: none;
+}
+
+@keyframes radarSweep {
+  0% { transform: scale(0.5); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+.placeholder-icon {
+  font-size: 26px;
+  margin-bottom: 0.35rem;
+  filter: drop-shadow(0 0 10px var(--accent-cyan));
+}
+
+.placeholder-title {
+  font-family: var(--hud-font);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent-cyan);
+  margin-bottom: 0.25rem;
+}
+
+.placeholder-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+  max-width: 240px;
+}
+
+.local-pip-wrap {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  width: 80px;
+  aspect-ratio: 4 / 3;
+  border: 1px solid var(--accent-cyan);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.8);
+  z-index: 5;
+}
+
+.local-pip-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  display: block;
+}
+
+.local-pip-badge {
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 8px;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 1px 4px;
+  border-radius: 3px;
+  letter-spacing: 0.05em;
+}
+
+.video-hud-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.45rem 0.65rem;
+  background: rgba(10, 18, 38, 0.92);
+  border-top: 1px solid var(--border);
+  gap: 0.5rem;
+}
+
+.video-status-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-footer-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
+.sci-video-mini-btn {
+  background: rgba(19, 27, 56, 0.85);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-family: var(--hud-font);
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0.2rem 0.45rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.sci-video-mini-btn:hover {
+  border-color: var(--accent-cyan);
+}
+
+.sci-video-mini-btn.btn-danger {
+  border-color: rgba(255, 42, 109, 0.5);
+  color: var(--accent-pink);
+}
+
+.sci-video-mini-btn.btn-danger:hover {
+  background: rgba(255, 42, 109, 0.2);
+  border-color: var(--accent-pink);
 }
 
 /* Hide navigation dropdown on desktop view */
@@ -892,6 +1198,19 @@
     left: 0.5rem;
     right: 0.5rem;
     grid-template-columns: repeat(6, 1fr);
+  }
+
+  .live-video-hud {
+    top: 46px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+    max-width: 320px;
+    margin: 0 auto;
+  }
+
+  .local-pip-wrap {
+    width: 64px;
   }
 }
 

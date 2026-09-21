@@ -76,13 +76,61 @@
           </div>
         </div>
 
-        <!-- Floating Call Button (Bottom Left Corner Above Input) -->
-        <a id="topCallBtn" class="sci-call-float-btn" href="/call.html" title="Start Voice/Video Call">⚡ Call</a>
+        <!-- Floating Call & Silent Live Video Buttons (Bottom Left Corner Above Input) -->
+        <div class="hud-floating-actions-left">
+          <a id="topCallBtn" class="sci-call-float-btn" href="/call.html" title="Start Voice/Video Call">⚡ Call</a>
+          <button id="leftLiveVideoBtn" class="sci-video-float-btn" title="Toggle Silent Live Video">📹 Live Video</button>
+        </div>
 
         <!-- Floating Actions (Bottom Right Corner Above Input) -->
         <div class="hud-floating-actions-right">
+          <button id="liveVideoBtn" class="sci-video-icon-btn" title="Toggle Silent Live Video Feed (Opponent Cam)">📹</button>
           <button id="instantLockBtn" class="sci-instant-lock-btn" title="Lock screen instantly">🔒</button>
           <button id="purgeMessagesBtn" class="sci-purge-icon-btn" title="Destroy all room messages immediately">🗑️</button>
+        </div>
+
+        <!-- Floating Holographic Live Video Feed (Opponent Cam, Strictly Silent) -->
+        <div id="liveVideoHUD" class="live-video-hud hidden">
+          <div class="video-hud-header">
+            <div class="video-hud-title">
+              <span class="video-live-dot"></span>
+              <span class="video-hud-label">❖ OPPONENT LIVE FEED</span>
+              <span class="video-silent-badge">🔇 SILENT</span>
+            </div>
+            <div class="video-hud-controls">
+              <button id="minimizeVideoBtn" class="video-control-btn" title="Minimize / Restore">_</button>
+              <button id="closeVideoBtn" class="video-control-btn close-btn" title="Close Video Feed">✕</button>
+            </div>
+          </div>
+
+          <div class="video-hud-body" id="videoHudBody">
+            <div class="video-screen-container">
+              <!-- Opponent Video Feed (Strictly Silent - No Audio) -->
+              <video id="opponentVideo" class="opponent-video" autoplay playsinline muted></video>
+
+              <!-- Waiting / Connecting Placeholder -->
+              <div id="opponentVideoPlaceholder" class="video-placeholder">
+                <div class="radar-scan"></div>
+                <div class="placeholder-icon">📹</div>
+                <div class="placeholder-title">WAITING FOR OPPONENT VIDEO...</div>
+                <div class="placeholder-desc">Clicking 📹 on both ends links camera feeds silently with zero audio</div>
+              </div>
+
+              <!-- Corner PiP Self View -->
+              <div id="localPipWrap" class="local-pip-wrap">
+                <video id="localVideoPreview" class="local-pip-video" autoplay playsinline muted></video>
+                <span class="local-pip-badge">YOU</span>
+              </div>
+            </div>
+
+            <div class="video-hud-footer">
+              <span id="videoStatusText" class="video-status-text">Quantum video link active</span>
+              <div class="video-footer-actions">
+                <button id="toggleSelfCamBtn" class="sci-video-mini-btn" title="Toggle Camera On/Off">📷 Cam</button>
+                <button id="stopVideoFeedBtn" class="sci-video-mini-btn btn-danger" title="Disconnect Feed">⏹ Stop</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Main Word Cloud Canvas -->
@@ -133,6 +181,7 @@
       <form id="messageForm" class="dock-form">
         <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji Panel">😊</button>
         <button type="button" id="fileButton" class="dock-action-btn" title="Attach Hologram/Image">📎</button>
+        <button type="button" id="dockVideoBtn" class="dock-action-btn" title="Toggle Silent Live Video">📹</button>
         <input type="file" id="fileInput" class="hidden" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" />
         
         <div class="dock-input-wrap">

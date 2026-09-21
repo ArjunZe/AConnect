@@ -2,6 +2,14 @@ import { createSocket } from './socket-client.js';
 import { debounce, generateUsername, sanitizeMessage, showNotification } from './utils.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
 import { initInactivityLock } from './inactivity-lock.js';
+import {
+  getVideoOnlyStream,
+  createPeerConnection,
+  createOffer,
+  handleOffer,
+  handleAnswer,
+  handleIceCandidate
+} from './webrtc.js';
 
 const socket = createSocket('/chat');
 initInactivityLock(socket);
@@ -23,6 +31,21 @@ const roomPasswordInput = document.getElementById('roomPasswordInput');
 const roomTTLSelect = document.getElementById('roomTTLSelect');
 const emojiPanel = document.getElementById('emojiPanel');
 const fileInput = document.getElementById('fileInput');
+
+// Live Video Elements
+const liveVideoBtn = document.getElementById('liveVideoBtn');
+const leftLiveVideoBtn = document.getElementById('leftLiveVideoBtn');
+const dockVideoBtn = document.getElementById('dockVideoBtn');
+const liveVideoHUD = document.getElementById('liveVideoHUD');
+const opponentVideo = document.getElementById('opponentVideo');
+const opponentVideoPlaceholder = document.getElementById('opponentVideoPlaceholder');
+const localVideoPreview = document.getElementById('localVideoPreview');
+const localPipWrap = document.getElementById('localPipWrap');
+const videoStatusText = document.getElementById('videoStatusText');
+const minimizeVideoBtn = document.getElementById('minimizeVideoBtn');
+const closeVideoBtn = document.getElementById('closeVideoBtn');
+const toggleSelfCamBtn = document.getElementById('toggleSelfCamBtn');
+const stopVideoFeedBtn = document.getElementById('stopVideoFeedBtn');
 
 // Mobile drawer buttons
 const leftSidebarToggle = document.getElementById('leftSidebarToggle');
@@ -53,6 +76,15 @@ cloudEngine.onReactionClick = (messageId, emoji) => {
 // Hook up silent message destruction for wrong password attempts
 window.onDestroyMessagesSilently = () => {
   cloudEngine.clear();
+  if (isLiveVideoActive) {
+    stopLiveVideo(true);
+  }
+};
+
+window.onScreenLocked = () => {
+  if (isLiveVideoActive) {
+    stopLiveVideo(true);
+  }
 };
 
 // Hook up login unlock completion
@@ -168,6 +200,9 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
   if (isPrivate && !password) {
     showNotification('Access Denied', `Password required to join room "${roomName}".`, 'warning');
     return;
+  }
+  if (isLiveVideoActive) {
+    stopLiveVideo(false);
   }
   socket.emit('join-room', { roomName, password }, (response) => {
     if (!response?.ok) {
@@ -447,6 +482,237 @@ if (purgeMessagesBtn) {
     }
   });
 }
+
+// ==========================================
+// Silent Live Video Feed System (Strictly Video, Zero Audio)
+// ==========================================
+let isLiveVideoActive = false;
+let isLocalCamOff = false;
+let isVideoMinimized = false;
+let localVideoStream = null;
+const videoPeers = new Map(); // peerId -> RTCPeerConnection
+
+function setVideoButtonsActive(active) {
+  if (liveVideoBtn) liveVideoBtn.classList.toggle('active', active);
+  if (leftLiveVideoBtn) leftLiveVideoBtn.classList.toggle('active', active);
+  if (dockVideoBtn) dockVideoBtn.classList.toggle('active-video', active);
+}
+
+function initVideoPeer(targetPeerId, initiator = true) {
+  if (videoPeers.has(targetPeerId)) return videoPeers.get(targetPeerId);
+
+  const peer = createPeerConnection({
+    localStream: localVideoStream,
+    onIceCandidate: (candidate) => {
+      socket.emit('video-feed-ice-candidate', {
+        room: currentRoom,
+        target: targetPeerId,
+        candidate
+      });
+    },
+    onTrack: (remoteStream) => {
+      // Guarantee 100% silent live video: kill and disable all audio tracks
+      remoteStream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        track.stop();
+      });
+
+      if (opponentVideo) {
+        opponentVideo.muted = true;
+        opponentVideo.volume = 0;
+        opponentVideo.srcObject = remoteStream;
+        opponentVideo.play().catch(() => {});
+      }
+      if (opponentVideoPlaceholder) {
+        opponentVideoPlaceholder.classList.add('hidden');
+      }
+      if (videoStatusText) {
+        videoStatusText.textContent = 'Opponent visual link established';
+      }
+    }
+  });
+
+  videoPeers.set(targetPeerId, peer);
+
+  if (initiator) {
+    createOffer(peer)
+      .then((offer) => {
+        socket.emit('video-feed-offer', {
+          room: currentRoom,
+          target: targetPeerId,
+          offer
+        });
+      })
+      .catch((err) => console.error('Error creating video offer:', err));
+  }
+
+  return peer;
+}
+
+async function startLiveVideo() {
+  if (isLiveVideoActive) return;
+  isLiveVideoActive = true;
+  setVideoButtonsActive(true);
+
+  if (liveVideoHUD) {
+    liveVideoHUD.classList.remove('hidden');
+    liveVideoHUD.classList.remove('minimized');
+  }
+  if (opponentVideoPlaceholder) {
+    opponentVideoPlaceholder.classList.remove('hidden');
+  }
+  if (videoStatusText) {
+    videoStatusText.textContent = 'Requesting camera (silent link)...';
+  }
+
+  try {
+    localVideoStream = await getVideoOnlyStream();
+    if (localVideoPreview) {
+      localVideoPreview.muted = true;
+      localVideoPreview.volume = 0;
+      localVideoPreview.srcObject = localVideoStream;
+      localVideoPreview.play().catch(() => {});
+    }
+    if (localPipWrap) localPipWrap.classList.remove('hidden');
+    if (videoStatusText) videoStatusText.textContent = 'Camera active. Waiting for opponent...';
+  } catch (err) {
+    console.warn('Local camera unavailable, switching to view-only mode:', err);
+    if (localPipWrap) localPipWrap.classList.add('hidden');
+    if (videoStatusText) videoStatusText.textContent = 'View-only mode (camera unavailable)';
+    showNotification('📹 Live Video', 'Camera unavailable. Linked in view-only mode to watch opponent.');
+  }
+
+  socket.emit('video-feed-join', { room: currentRoom }, async (res) => {
+    if (res?.peers && res.peers.length > 0) {
+      for (const peerId of res.peers) {
+        await initVideoPeer(peerId, true);
+      }
+    }
+  });
+}
+
+function stopLiveVideo(notifyServer = true) {
+  if (!isLiveVideoActive) return;
+  isLiveVideoActive = false;
+  setVideoButtonsActive(false);
+
+  if (localVideoStream) {
+    localVideoStream.getTracks().forEach((track) => track.stop());
+    localVideoStream = null;
+  }
+  if (localVideoPreview) localVideoPreview.srcObject = null;
+
+  videoPeers.forEach((peer) => {
+    try { peer.close(); } catch (_) {}
+  });
+  videoPeers.clear();
+
+  if (opponentVideo) opponentVideo.srcObject = null;
+  if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.remove('hidden');
+
+  if (liveVideoHUD) {
+    liveVideoHUD.classList.add('hidden');
+    liveVideoHUD.classList.remove('minimized');
+  }
+
+  if (notifyServer) {
+    socket.emit('video-feed-leave', { room: currentRoom });
+  }
+}
+
+async function toggleLiveVideo() {
+  if (isLiveVideoActive) {
+    stopLiveVideo(true);
+  } else {
+    await startLiveVideo();
+  }
+}
+
+// UI Event Handlers
+liveVideoBtn?.addEventListener('click', toggleLiveVideo);
+leftLiveVideoBtn?.addEventListener('click', toggleLiveVideo);
+dockVideoBtn?.addEventListener('click', toggleLiveVideo);
+closeVideoBtn?.addEventListener('click', () => stopLiveVideo(true));
+stopVideoFeedBtn?.addEventListener('click', () => stopLiveVideo(true));
+
+minimizeVideoBtn?.addEventListener('click', () => {
+  isVideoMinimized = !isVideoMinimized;
+  liveVideoHUD?.classList.toggle('minimized', isVideoMinimized);
+  minimizeVideoBtn.textContent = isVideoMinimized ? '□' : '_';
+});
+
+toggleSelfCamBtn?.addEventListener('click', () => {
+  if (!localVideoStream) return;
+  isLocalCamOff = !isLocalCamOff;
+  localVideoStream.getVideoTracks().forEach((track) => (track.enabled = !isLocalCamOff));
+  toggleSelfCamBtn.textContent = isLocalCamOff ? '📷 Cam Off' : '📷 Cam';
+  if (localPipWrap) localPipWrap.style.opacity = isLocalCamOff ? '0.35' : '1';
+});
+
+// Video Socket Listeners
+socket.on('video-feed-peer-joined', async ({ peerId, username }) => {
+  if (isLiveVideoActive) {
+    showNotification('📹 Opponent Connected', `${username || 'Opponent'} joined silent video feed`);
+    await initVideoPeer(peerId, true);
+  } else {
+    showNotification('📹 Live Video Available', `${username || 'Opponent'} started live video feed! Click 📹 to connect.`);
+    setVideoButtonsActive(true);
+  }
+});
+
+socket.on('video-feed-offer', async ({ from, offer, username }) => {
+  if (!isLiveVideoActive) {
+    await startLiveVideo();
+  }
+  let peer = videoPeers.get(from);
+  if (!peer) {
+    peer = initVideoPeer(from, false);
+  }
+  try {
+    const answer = await handleOffer(peer, offer);
+    socket.emit('video-feed-answer', {
+      room: currentRoom,
+      target: from,
+      answer
+    });
+  } catch (err) {
+    console.error('Error handling video offer:', err);
+  }
+});
+
+socket.on('video-feed-answer', async ({ from, answer }) => {
+  const peer = videoPeers.get(from);
+  if (peer) {
+    try {
+      await handleAnswer(peer, answer);
+    } catch (err) {
+      console.error('Error handling video answer:', err);
+    }
+  }
+});
+
+socket.on('video-feed-ice-candidate', async ({ from, candidate }) => {
+  const peer = videoPeers.get(from);
+  if (peer) {
+    try {
+      await handleIceCandidate(peer, candidate);
+    } catch (err) {
+      console.error('Error handling video ICE candidate:', err);
+    }
+  }
+});
+
+socket.on('video-feed-peer-left', ({ peerId }) => {
+  if (videoPeers.has(peerId)) {
+    try { videoPeers.get(peerId).close(); } catch (_) {}
+    videoPeers.delete(peerId);
+  }
+  if (videoPeers.size === 0) {
+    if (opponentVideo) opponentVideo.srcObject = null;
+    if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.remove('hidden');
+    if (videoStatusText) videoStatusText.textContent = 'Opponent left video feed';
+  }
+});
 
 setupEmojiPicker();
 socket.emit('get-rooms');

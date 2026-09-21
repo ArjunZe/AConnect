@@ -717,21 +717,41 @@
   transform: scale(1.05);
 }
 
-/* Floating Trash Can Button (Bottom Right Corner Above Input) */
-.sci-purge-icon-btn {
+/* Floating Action Buttons (Bottom Right Corner Above Input) */
+.hud-floating-actions-right {
   position: absolute;
   bottom: 14px;
   right: 16px;
   z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sci-instant-lock-btn,
+.sci-purge-icon-btn {
   background: transparent;
   border: none;
   font-size: 20px;
-  opacity: 0.65;
+  opacity: 0.7;
   cursor: pointer;
   padding: 4px;
   line-height: 1;
   outline: none;
-  transition: all 0.2s ease;
+  transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sci-instant-lock-btn {
+  filter: drop-shadow(0 0 6px rgba(0, 243, 255, 0.6));
+}
+
+.sci-instant-lock-btn:hover {
+  opacity: 1;
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 14px rgba(0, 243, 255, 0.95));
+}
+
+.sci-purge-icon-btn {
   filter: drop-shadow(0 0 6px rgba(255, 42, 109, 0.4));
 }
 

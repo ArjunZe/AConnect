@@ -100,6 +100,10 @@ export function lockScreen(options = {}) {
     if (titleEl) titleEl.textContent = 'Security Clearance Required';
     if (descEl) descEl.innerHTML = 'Screen blurred for privacy.<br>Enter clearance password to enter chat.';
     if (btnEl) btnEl.textContent = 'Enter Chat ➔';
+  } else if (currentMode === 'instant') {
+    if (titleEl) titleEl.textContent = 'Terminal Locked';
+    if (descEl) descEl.innerHTML = 'Screen locked instantly for security.<br>Enter clearance password to unlock.';
+    if (btnEl) btnEl.textContent = 'Unlock Screen ➔';
   } else {
     if (titleEl) titleEl.textContent = 'System Inactivity Lock';
     if (descEl) descEl.innerHTML = 'Screen locked after 5 minutes of inactivity.<br>Enter clearance password to unlock.';

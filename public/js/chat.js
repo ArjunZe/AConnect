@@ -417,6 +417,15 @@ socket.on('room-ttl-updated', (data) => {
   }
 });
 
+const instantLockBtn = document.getElementById('instantLockBtn');
+if (instantLockBtn) {
+  instantLockBtn.addEventListener('click', () => {
+    if (typeof window.lockScreen === 'function') {
+      window.lockScreen({ mode: 'instant' });
+    }
+  });
+}
+
 const purgeMessagesBtn = document.getElementById('purgeMessagesBtn');
 if (purgeMessagesBtn) {
   purgeMessagesBtn.addEventListener('click', () => {

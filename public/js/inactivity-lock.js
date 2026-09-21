@@ -51,6 +51,26 @@ export function initInactivityLock(socket = null) {
     // Touch screen or click anywhere on locked screen focuses password input
     window.addEventListener('touchstart', handleLockedTouch, { passive: false });
     window.addEventListener('click', handleLockedTouch, { passive: false });
+
+    // Lock screen instantly on tab focus lost (switching tabs, minimizing, losing window focus)
+    function handleTabFocusLost() {
+      if (window.isOpeningFilePicker) return;
+      if (document.body && document.body.classList.contains('landing-body')) return;
+      if (isLocked) return;
+      if (window.hasEnteredChat) {
+        lockScreen({ mode: 'instant' });
+      }
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden || document.visibilityState === 'hidden') {
+        handleTabFocusLost();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      handleTabFocusLost();
+    });
   });
 }
 

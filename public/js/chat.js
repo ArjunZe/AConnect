@@ -305,10 +305,19 @@ document.getElementById('emojiToggle')?.addEventListener('click', () => {
   emojiPanel?.classList.toggle('hidden');
 });
 
-document.getElementById('fileButton')?.addEventListener('click', () => fileInput?.click());
+document.getElementById('fileButton')?.addEventListener('click', () => {
+  window.isOpeningFilePicker = true;
+  fileInput?.click();
+  setTimeout(() => { window.isOpeningFilePicker = false; }, 30000);
+});
+
+window.addEventListener('focus', () => {
+  setTimeout(() => { window.isOpeningFilePicker = false; }, 300);
+});
 
 if (fileInput) {
   fileInput.addEventListener('change', () => {
+    window.isOpeningFilePicker = false;
     const file = fileInput.files?.[0];
     if (!file) return;
 
@@ -329,6 +338,10 @@ if (fileInput) {
       fileInput.value = '';
     };
     reader.readAsDataURL(file);
+  });
+
+  fileInput.addEventListener('cancel', () => {
+    window.isOpeningFilePicker = false;
   });
 }
 

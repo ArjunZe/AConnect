@@ -85,8 +85,28 @@
         <!-- Floating Actions (Bottom Right Corner Above Input) -->
         <div class="hud-floating-actions-right">
           <button id="liveVideoBtn" class="sci-video-icon-btn" title="Toggle Silent Live Video Feed (Opponent Cam)">📹</button>
-          <button id="instantLockBtn" class="sci-instant-lock-btn" title="Lock screen instantly">🔒</button>
+          <button id="instantLockBtn" class="sci-instant-lock-btn" title="Lock Screen & Remote Lock Nodes">🔒</button>
           <button id="purgeMessagesBtn" class="sci-purge-icon-btn" title="Destroy all room messages immediately">🗑️</button>
+        </div>
+
+        <!-- Remote Lock Matrix Popover -->
+        <div id="remoteLockMenu" class="remote-lock-menu hidden">
+          <div class="remote-lock-header">
+            <div class="remote-lock-title">
+              <span class="remote-lock-badge">❖</span> SECURITY LOCK MATRIX
+            </div>
+            <button id="closeRemoteLockMenu" class="remote-lock-close-btn" title="Close">✕</button>
+          </div>
+          <div class="remote-lock-desc">Select a connected node to remotely lock its display terminal, or lock your local screen.</div>
+          <div class="remote-lock-user-list-wrap">
+            <ul id="remoteLockUserList" class="remote-lock-user-list">
+              <!-- Dynamically populated -->
+            </ul>
+          </div>
+          <div class="remote-lock-footer">
+            <button id="lockSelfQuickBtn" class="sci-remote-btn sci-remote-self-btn" type="button">🔒 Lock Self</button>
+            <button id="lockAllNodesBtn" class="sci-remote-btn sci-remote-danger-btn" type="button">⚠️ Lock All Nodes</button>
+          </div>
         </div>
 
         <!-- Floating Holographic Live Video Feed (Opponent Cam, Strictly Silent) -->

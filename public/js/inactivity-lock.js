@@ -70,15 +70,28 @@ export function initInactivityLock(socket = null) {
       lastActivityTime = Date.now();
     }
 
-    // Interval checking message/activity time every 2 seconds
+    // Interval checking message/activity time every 1 second
     if (checkInterval) clearInterval(checkInterval);
-    checkInterval = setInterval(checkInactivity, 2000);
+    checkInterval = setInterval(checkInactivity, 1000);
 
     // Track user actions (typing, sending messages, clicking UI)
     const userEvents = ['keydown', 'mousedown', 'touchstart', 'click'];
     userEvents.forEach((evt) => {
       window.addEventListener(evt, () => registerUserActivity(), { passive: true });
     });
+
+    // Track scrolling and mouse movement (throttled to avoid performance drag)
+    let lastThrottledActivity = 0;
+    const throttledActivity = () => {
+      const now = Date.now();
+      if (now - lastThrottledActivity > 2000) {
+        lastThrottledActivity = now;
+        registerUserActivity();
+      }
+    };
+    window.addEventListener('mousemove', throttledActivity, { passive: true });
+    window.addEventListener('wheel', throttledActivity, { passive: true });
+    window.addEventListener('scroll', throttledActivity, { passive: true });
 
     // Touch screen or click anywhere on locked screen focuses password input
     window.addEventListener('touchstart', handleLockedTouch, { passive: false });
@@ -89,7 +102,9 @@ export function initInactivityLock(socket = null) {
       if (window.isOpeningFilePicker) return;
       if (document.body && document.body.classList.contains('landing-body')) return;
       if (isLocked) return;
-      if (window.hasEnteredChat) {
+      const inChat = Boolean(window.hasEnteredChat || (document.body && !document.body.classList.contains('screen-locked') && !document.body.classList.contains('landing-body')));
+      if (inChat) {
+        window.hasEnteredChat = true;
         lockScreen({ mode: 'instant' });
       }
     }
@@ -97,6 +112,8 @@ export function initInactivityLock(socket = null) {
     document.addEventListener('visibilitychange', () => {
       if (document.hidden || document.visibilityState === 'hidden') {
         handleTabFocusLost();
+      } else {
+        checkInactivity();
       }
     });
 
@@ -115,6 +132,13 @@ function ensureDOMReady(fn) {
 }
 
 function checkInactivity() {
+  const inChat = Boolean(
+    window.hasEnteredChat ||
+    (document.body && !document.body.classList.contains('screen-locked') && !document.body.classList.contains('landing-body'))
+  );
+  if (inChat && !window.hasEnteredChat) {
+    window.hasEnteredChat = true;
+  }
   if (isLocked || !window.hasEnteredChat) return;
   const elapsed = Date.now() - lastActivityTime;
   if (elapsed >= INACTIVITY_TIMEOUT_MS) {
@@ -161,6 +185,11 @@ export function lockScreen(options = {}) {
     if (titleEl) titleEl.textContent = 'Security Clearance Required';
     if (descEl) descEl.innerHTML = 'Screen blurred for privacy.<br>Enter clearance password to enter chat.';
     if (btnEl) btnEl.textContent = 'Enter Chat ➔';
+  } else if (currentMode === 'remote') {
+    const lockedBy = options.lockedBy ? ` by ${options.lockedBy}` : '';
+    if (titleEl) titleEl.textContent = 'Remote Lock Triggered';
+    if (descEl) descEl.innerHTML = `Terminal remotely locked${lockedBy}.<br>Enter clearance password to unlock.`;
+    if (btnEl) btnEl.textContent = 'Unlock Screen ➔';
   } else if (currentMode === 'instant') {
     if (titleEl) titleEl.textContent = 'Terminal Locked';
     if (descEl) descEl.innerHTML = 'Screen locked instantly for security.<br>Enter clearance password to unlock.';
@@ -187,6 +216,7 @@ export function lockScreen(options = {}) {
 
 export function unlockScreen() {
   isLocked = false;
+  window.hasEnteredChat = true;
   failedAttempts = 0;
   hideLockMessageDot();
   localStorage.removeItem(STORAGE_KEY_LOCKED);
@@ -320,4 +350,13 @@ window.setInactivityTimeout = (seconds) => {
   INACTIVITY_TIMEOUT_MS = seconds * 1000;
   lastActivityTime = Date.now();
   console.log(`Inactivity lock timeout set to ${seconds} seconds.`);
+};
+window.getInactivityRemaining = () => {
+  if (isLocked) return 0;
+  const elapsed = Date.now() - lastActivityTime;
+  return Math.max(0, Math.round((INACTIVITY_TIMEOUT_MS - elapsed) / 1000));
+};
+window.resetInactivityTimer = () => {
+  lastActivityTime = Date.now();
+  console.log('Inactivity timer reset.');
 };

@@ -279,24 +279,78 @@ function renderRoomUserDots(users = []) {
   currentRoomCountEl.innerHTML = dotsHtml;
 }
 
+let latestRoomUsers = [];
+
 function updateRoomUsers(users = []) {
+  latestRoomUsers = users;
   renderRoomUserDots(users);
+  renderRemoteLockUsers(users);
 
   roomUsersEl.innerHTML = '';
+  const myId = getMySocketId();
+
   users.forEach((user) => {
+    const isMe = user.socketId === myId;
     const palette = getUserColor(user.username);
     const li = document.createElement('li');
-    li.className = 'user-item';
+    li.className = 'user-item' + (isMe ? ' current-user-item' : '');
     const statusIcon = user.isLocked
       ? `<span class="node-status-icon locked" title="Screen Locked">🔒</span>`
       : `<span class="online-pulse-dot" title="Online"></span>`;
 
     li.innerHTML = `
       <div class="user-avatar-dot" style="border-color: ${palette.main}; color: ${palette.main};">${escapeHtml(user.username[0].toUpperCase())}</div>
-      <span style="font-weight: 600; font-size: 14px; color: ${palette.main};">${escapeHtml(user.username)}</span>
+      <span style="font-weight: 600; font-size: 14px; color: ${palette.main};">${escapeHtml(user.username)}${isMe ? ' <span class="you-badge">(You)</span>' : ''}</span>
       ${statusIcon}
     `;
     roomUsersEl.appendChild(li);
+  });
+}
+
+function renderRemoteLockUsers(users = []) {
+  const listEl = document.getElementById('remoteLockUserList');
+  if (!listEl) return;
+
+  listEl.innerHTML = '';
+  if (!users || users.length === 0) {
+    listEl.innerHTML = '<li class="remote-lock-empty">No connected nodes found.</li>';
+    return;
+  }
+
+  const myId = getMySocketId();
+
+  users.forEach((user) => {
+    const isMe = user.socketId === myId;
+    const palette = getUserColor(user.username);
+    const li = document.createElement('li');
+    li.className = 'remote-lock-user-item' + (isMe ? ' is-me' : '');
+
+    const statusDot = user.isLocked
+      ? `<span style="font-size: 11px;" title="Screen Locked">🔒</span>`
+      : `<span class="online-pulse-dot" style="width: 7px; height: 7px;" title="Online"></span>`;
+
+    let actionBtnHtml = '';
+    if (isMe) {
+      actionBtnHtml = `<button type="button" class="remote-lock-action-btn lock-self" data-action="lock-self">🔒 Lock (You)</button>`;
+    } else if (user.isLocked) {
+      actionBtnHtml = `<button type="button" class="remote-lock-action-btn locked-state" disabled title="Node is already locked">Locked 🔒</button>`;
+    } else {
+      actionBtnHtml = `<button type="button" class="remote-lock-action-btn lock-target" data-action="remote-lock" data-socket-id="${escapeHtml(user.socketId)}" data-username="${escapeHtml(user.username)}">🔒 Remote Lock</button>`;
+    }
+
+    li.innerHTML = `
+      <div class="remote-lock-user-info">
+        ${statusDot}
+        <div class="remote-lock-user-avatar" style="border-color: ${palette.main}; color: ${palette.main};">${escapeHtml(user.username[0].toUpperCase())}</div>
+        <span class="remote-lock-user-name" title="${escapeHtml(user.username)}">${escapeHtml(user.username)}</span>
+        ${isMe ? '<span class="you-badge">(You)</span>' : ''}
+      </div>
+      <div class="remote-lock-user-action">
+        ${actionBtnHtml}
+      </div>
+    `;
+
+    listEl.appendChild(li);
   });
 }
 
@@ -447,6 +501,7 @@ socket.on('rooms-updated', () => socket.emit('get-rooms'));
 socket.on('room-created', () => socket.emit('get-rooms'));
 
 socket.on('room-joined', (data) => {
+  window.hasEnteredChat = true;
   currentRoom = data.room;
   window.currentRoomName = data.room;
   currentMessageTTL = data.messageTTL !== undefined ? Number(data.messageTTL) : 86400000;
@@ -457,6 +512,15 @@ socket.on('room-joined', (data) => {
 
   updateRoomUsers(data.users);
   cloudEngine.setMessages(data.history || [], currentMessageTTL, mySocketId);
+});
+
+socket.on('force-lock-screen', (data) => {
+  if (typeof window.lockScreen === 'function') {
+    window.lockScreen({
+      mode: 'remote',
+      lockedBy: data?.by || 'Remote Node'
+    });
+  }
 });
 
 socket.on('room-users', updateRoomUsers);
@@ -515,13 +579,99 @@ socket.on('room-ttl-updated', (data) => {
 });
 
 const instantLockBtn = document.getElementById('instantLockBtn');
+const remoteLockMenu = document.getElementById('remoteLockMenu');
+const closeRemoteLockMenu = document.getElementById('closeRemoteLockMenu');
+const lockSelfQuickBtn = document.getElementById('lockSelfQuickBtn');
+const lockAllNodesBtn = document.getElementById('lockAllNodesBtn');
+const remoteLockUserList = document.getElementById('remoteLockUserList');
+
 if (instantLockBtn) {
-  instantLockBtn.addEventListener('click', () => {
+  instantLockBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!remoteLockMenu) return;
+    const isHidden = remoteLockMenu.classList.contains('hidden');
+    if (isHidden) {
+      renderRemoteLockUsers(latestRoomUsers);
+      remoteLockMenu.classList.remove('hidden');
+    } else {
+      remoteLockMenu.classList.add('hidden');
+    }
+  });
+}
+
+if (closeRemoteLockMenu) {
+  closeRemoteLockMenu.addEventListener('click', () => {
+    remoteLockMenu?.classList.add('hidden');
+  });
+}
+
+if (lockSelfQuickBtn) {
+  lockSelfQuickBtn.addEventListener('click', () => {
+    remoteLockMenu?.classList.add('hidden');
     if (typeof window.lockScreen === 'function') {
       window.lockScreen({ mode: 'instant' });
     }
   });
 }
+
+if (lockAllNodesBtn) {
+  lockAllNodesBtn.addEventListener('click', () => {
+    if (!confirm('⚠️ Are you sure you want to remotely lock all terminal displays in this room?')) {
+      return;
+    }
+    remoteLockMenu?.classList.add('hidden');
+    socket.emit('remote-lock-user', { targetSocketId: 'all', room: currentRoom }, (res) => {
+      if (res?.ok) {
+        showNotification('🔒 Global Lock Executed', 'Lock signal transmitted to all room nodes.');
+      } else {
+        alert(res?.error || 'Failed to lock all nodes.');
+      }
+    });
+    if (typeof window.lockScreen === 'function') {
+      window.lockScreen({ mode: 'instant' });
+    }
+  });
+}
+
+if (remoteLockUserList) {
+  remoteLockUserList.addEventListener('click', (e) => {
+    const btn = e.target.closest('.remote-lock-action-btn');
+    if (!btn || btn.disabled) return;
+
+    const action = btn.dataset.action;
+    if (action === 'lock-self') {
+      remoteLockMenu?.classList.add('hidden');
+      if (typeof window.lockScreen === 'function') {
+        window.lockScreen({ mode: 'instant' });
+      }
+    } else if (action === 'remote-lock') {
+      const targetSocketId = btn.dataset.socketId;
+      const targetUsername = btn.dataset.username || 'Remote Node';
+      if (!targetSocketId) return;
+
+      btn.disabled = true;
+      btn.textContent = 'Locking...';
+
+      socket.emit('remote-lock-user', { targetSocketId, room: currentRoom }, (res) => {
+        if (res?.ok) {
+          showNotification('🔒 Remote Lock Transmitted', `Terminal locked for ${targetUsername}`);
+          renderRemoteLockUsers(latestRoomUsers);
+        } else {
+          alert(res?.error || 'Failed to remotely lock user.');
+          btn.disabled = false;
+          btn.textContent = '🔒 Remote Lock';
+        }
+      });
+    }
+  });
+}
+
+document.addEventListener('click', (e) => {
+  if (!remoteLockMenu || remoteLockMenu.classList.contains('hidden')) return;
+  if (!remoteLockMenu.contains(e.target) && !instantLockBtn?.contains(e.target)) {
+    remoteLockMenu.classList.add('hidden');
+  }
+});
 
 const purgeMessagesBtn = document.getElementById('purgeMessagesBtn');
 if (purgeMessagesBtn) {

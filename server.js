@@ -347,6 +347,45 @@ chatNamespace.on('connection', (socket) => {
     emitRoomList(chatNamespace);
   });
 
+  socket.on('remote-lock-user', (payload = {}, callback) => {
+    const caller = users.get(socket.id);
+    const targetRoom = String(payload?.room || caller?.room || 'Default').trim().slice(0, 40) || 'Default';
+    if (!rooms.has(targetRoom)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+
+    const callerName = caller?.username || 'Remote Node';
+    const targetSocketId = payload?.targetSocketId;
+
+    if (targetSocketId === 'all') {
+      const room = rooms.get(targetRoom);
+      room.users.forEach((sid) => {
+        const u = users.get(sid);
+        if (u) {
+          u.isLocked = true;
+        }
+      });
+      chatNamespace.to(targetRoom).emit('force-lock-screen', { by: callerName });
+      chatNamespace.to(targetRoom).emit('room-users', roomUsers(targetRoom));
+      emitRoomList(chatNamespace);
+      callback?.({ ok: true, target: 'all' });
+      return;
+    }
+
+    if (!targetSocketId || !users.has(targetSocketId)) {
+      callback?.({ ok: false, error: 'Target node is not connected or offline.' });
+      return;
+    }
+
+    const targetUser = users.get(targetSocketId);
+    targetUser.isLocked = true;
+    chatNamespace.to(targetSocketId).emit('force-lock-screen', { by: callerName });
+    chatNamespace.to(targetRoom).emit('room-users', roomUsers(targetRoom));
+    emitRoomList(chatNamespace);
+    callback?.({ ok: true, target: targetSocketId, username: targetUser.username });
+  });
+
   socket.on('update-room-ttl', (payload = {}, callback) => {
     const user = users.get(socket.id);
     const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
@@ -485,6 +524,7 @@ chatNamespace.on('connection', (socket) => {
     }
 
     user.room = targetRoom;
+    user.isLocked = false;
     users.set(socket.id, user);
     clearRoomCleanupTimer(targetRoom);
 

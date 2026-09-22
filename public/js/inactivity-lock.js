@@ -235,9 +235,7 @@ export function verifyPassword(password) {
         }
       }
       if (errorEl) {
-        errorEl.textContent = res?.error || (shouldPurge
-          ? 'Access Denied: 2 invalid attempts. Messages destroyed.'
-          : 'Access Denied: Invalid Password. (1 attempt remaining)');
+        errorEl.textContent = res?.error || 'Wrong password.';
       }
       shakeCard(card);
     }
@@ -254,7 +252,7 @@ export function verifyPassword(password) {
     if (cleanPass === storedPass || cleanPass === 'turtle') {
       handleResult({ ok: true });
     } else {
-      handleResult({ ok: false, error: 'Access Denied: Invalid Password.' });
+      handleResult({ ok: false, error: 'Wrong password.' });
     }
   }
 }

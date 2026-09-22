@@ -304,17 +304,15 @@ chatNamespace.on('connection', (socket) => {
         destroyRoomMessagesSilently(targetRoom);
         callback?.({
           ok: false,
-          attemptsRemaining: 0,
           purged: true,
-          error: 'Access Denied: 2 invalid attempts. Messages destroyed.'
+          error: 'Wrong password.'
         });
       } else {
         failedPasswordAttempts.set(socket.id, attempts);
         callback?.({
           ok: false,
-          attemptsRemaining: 1,
           purged: false,
-          error: 'Access Denied: Invalid Password. (1 attempt remaining)'
+          error: 'Wrong password.'
         });
       }
     }
@@ -414,29 +412,25 @@ chatNamespace.on('connection', (socket) => {
         destroyRoomMessagesSilently(targetRoom);
         callback?.({
           ok: false,
-          attemptsRemaining: 0,
           purged: true,
-          error: 'Invalid room password. 2 failed attempts: messages destroyed.'
+          error: 'Wrong password.'
         });
         socket.emit('join-room-error', {
           room: targetRoom,
-          attemptsRemaining: 0,
           purged: true,
-          error: 'Invalid room password. 2 failed attempts: messages destroyed.'
+          error: 'Wrong password.'
         });
       } else {
         failedPasswordAttempts.set(socket.id, attempts);
         callback?.({
           ok: false,
-          attemptsRemaining: 1,
           purged: false,
-          error: 'Invalid room password. (1 attempt remaining)'
+          error: 'Wrong password.'
         });
         socket.emit('join-room-error', {
           room: targetRoom,
-          attemptsRemaining: 1,
           purged: false,
-          error: 'Invalid room password. (1 attempt remaining)'
+          error: 'Wrong password.'
         });
       }
       return;
@@ -718,7 +712,7 @@ callNamespace.on('connection', (socket) => {
     if (verifyLockPassword(password, socket.id)) {
       callback?.({ ok: true });
     } else {
-      callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
+      callback?.({ ok: false, error: 'Wrong password.' });
     }
   });
 

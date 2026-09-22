@@ -244,9 +244,94 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--accent-green);
-  box-shadow: 0 0 8px var(--accent-green);
+  background: #00ff88;
+  box-shadow: 0 0 8px #00ff88;
   margin-left: auto;
+  flex-shrink: 0;
+}
+
+.node-status-icon.locked {
+  font-size: 13px;
+  color: #ff3366;
+  filter: drop-shadow(0 0 6px rgba(255, 51, 102, 0.9));
+  margin-left: auto;
+  flex-shrink: 0;
+  user-select: none;
+}
+
+.room-user-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+  min-height: 18px;
+}
+
+.user-status-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  user-select: none;
+  transition: transform 0.2s ease;
+}
+
+.user-status-dot.user-dot-online {
+  color: #00ff88;
+  font-size: 14px;
+  filter: drop-shadow(0 0 6px #00ff88);
+  animation: onlineDotPulse 2s infinite ease-in-out;
+}
+
+.user-status-dot.user-dot-locked {
+  color: #ff3366;
+  font-size: 12px;
+  filter: drop-shadow(0 0 6px rgba(255, 51, 102, 0.95));
+  animation: lockedIconPulse 2.5s infinite ease-in-out;
+}
+
+@keyframes onlineDotPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+    filter: drop-shadow(0 0 9px #00ff88);
+  }
+}
+
+@keyframes lockedIconPulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 1;
+    filter: drop-shadow(0 0 9px rgba(255, 51, 102, 1));
+  }
+}
+
+.room-pill.dots-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0.15rem 0.45rem;
+}
+
+.room-pill-dot.online {
+  color: #00ff88;
+  font-size: 10px;
+  filter: drop-shadow(0 0 4px #00ff88);
+}
+
+.room-pill-dot.locked {
+  color: #ff3366;
+  font-size: 9px;
+  filter: drop-shadow(0 0 4px #ff3366);
 }
 
 /* Central Canvas Word Cloud Viewport */

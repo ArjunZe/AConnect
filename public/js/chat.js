@@ -223,33 +223,78 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
   });
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
 function loadRooms(rooms) {
   roomListEl.innerHTML = '';
   const defaultRoomMissing = !rooms.some((room) => room.name === 'Default');
-  const renderRooms = defaultRoomMissing ? [{ name: 'Default', count: 0, isPrivate: false, messageTTL: 86400000 }, ...rooms] : rooms;
+  const renderRooms = defaultRoomMissing ? [{ name: 'Default', count: 0, users: [], isPrivate: false, messageTTL: 86400000 }, ...rooms] : rooms;
 
   renderRooms.forEach((room) => {
     const li = document.createElement('li');
     li.className = `room-item ${room.name === currentRoom ? 'active' : ''}`;
     const lock = room.isPrivate ? '🔒 ' : '';
     const ttlTag = room.messageTTL > 0 ? (room.messageTTL >= 86400000 ? ' ⚡24h' : (room.messageTTL >= 3600000 ? ' ⚡1h' : ' ⚡5m')) : '';
-    li.innerHTML = `<span>${lock}${room.name}${ttlTag}</span><span class="badge">${room.count}</span>`;
+    
+    let dotsHtml = '';
+    if (room.users && room.users.length > 0) {
+      dotsHtml = room.users.map((u) => {
+        return u.isLocked
+          ? `<span class="room-pill-dot locked" title="${escapeHtml(u.username)}: Locked">🔒</span>`
+          : `<span class="room-pill-dot online" title="${escapeHtml(u.username)}: Online">●</span>`;
+      }).join('');
+    } else if (room.count > 0) {
+      dotsHtml = `<span style="font-size: 11px;">${room.count}</span>`;
+    } else {
+      dotsHtml = `<span style="font-size: 11px; opacity: 0.6;">0</span>`;
+    }
+
+    li.innerHTML = `<span>${lock}${escapeHtml(room.name)}${ttlTag}</span><span class="badge dots-pill">${dotsHtml}</span>`;
     li.addEventListener('click', () => joinRoom(room.name, room.isPrivate));
     roomListEl.appendChild(li);
   });
 }
 
+function renderRoomUserDots(users = []) {
+  if (!currentRoomCountEl) return;
+  if (!users || users.length === 0) {
+    currentRoomCountEl.innerHTML = '';
+    return;
+  }
+
+  // 1 user 1 dot, 2 user 2 dots. Online green dot, locked red pad lock icon.
+  const dotsHtml = users.map((user) => {
+    const isLocked = Boolean(user.isLocked);
+    const safeName = escapeHtml(user.username || 'User');
+    if (isLocked) {
+      return `<span class="user-status-dot user-dot-locked" title="${safeName}: Locked">🔒</span>`;
+    }
+    return `<span class="user-status-dot user-dot-online" title="${safeName}: Online">●</span>`;
+  }).join('');
+
+  currentRoomCountEl.innerHTML = dotsHtml;
+}
+
 function updateRoomUsers(users = []) {
-  currentRoomCountEl.textContent = `(${users.length} users)`;
+  renderRoomUserDots(users);
+
   roomUsersEl.innerHTML = '';
   users.forEach((user) => {
     const palette = getUserColor(user.username);
     const li = document.createElement('li');
     li.className = 'user-item';
+    const statusIcon = user.isLocked
+      ? `<span class="node-status-icon locked" title="Screen Locked">🔒</span>`
+      : `<span class="online-pulse-dot" title="Online"></span>`;
+
     li.innerHTML = `
-      <div class="user-avatar-dot" style="border-color: ${palette.main}; color: ${palette.main};">${user.username[0].toUpperCase()}</div>
-      <span style="font-weight: 600; font-size: 14px; color: ${palette.main};">${user.username}</span>
-      <span class="online-pulse-dot"></span>
+      <div class="user-avatar-dot" style="border-color: ${palette.main}; color: ${palette.main};">${escapeHtml(user.username[0].toUpperCase())}</div>
+      <span style="font-weight: 600; font-size: 14px; color: ${palette.main};">${escapeHtml(user.username)}</span>
+      ${statusIcon}
     `;
     roomUsersEl.appendChild(li);
   });
@@ -418,6 +463,9 @@ socket.on('room-users', updateRoomUsers);
 
 socket.on('new-message', (msg) => {
   cloudEngine.addMessage(msg);
+  if (window.isScreenLocked?.() || document.body.classList.contains('screen-locked')) {
+    window.showLockMessageDot?.();
+  }
 });
 
 socket.on('system-message', ({ text }) => {

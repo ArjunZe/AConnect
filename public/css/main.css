@@ -255,11 +255,46 @@ body.screen-locked > *:not(#inactivityLockOverlay) {
   to { transform: scale(1); opacity: 1; }
 }
 
+.lock-icon-container {
+  position: relative;
+  display: inline-block;
+  margin: 0 auto 0.75rem auto;
+}
+
 .lock-icon {
   font-size: 42px;
-  margin-bottom: 0.75rem;
   display: inline-block;
   animation: pulseGlow 2s infinite ease-in-out;
+}
+
+.lock-new-msg-dot {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #00ff88;
+  border: 2px solid #0d1329;
+  box-shadow: 0 0 10px #00ff88, 0 0 20px #00ff88;
+  animation: lockMsgDotPulse 1.4s infinite ease-in-out;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.lock-new-msg-dot.hidden {
+  display: none !important;
+}
+
+@keyframes lockMsgDotPulse {
+  0%, 100% {
+    transform: scale(0.95);
+    box-shadow: 0 0 8px #00ff88;
+  }
+  50% {
+    transform: scale(1.28);
+    box-shadow: 0 0 16px #00ff88, 0 0 26px rgba(0, 255, 136, 0.75);
+  }
 }
 
 @keyframes pulseGlow {

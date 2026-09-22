@@ -17,6 +17,37 @@ let failedAttempts = 0;
 
 export function setLockSocket(socket) {
   socketInstance = socket;
+  if (socketInstance) {
+    socketInstance.on('new-message', () => {
+      if (isLocked) {
+        showLockMessageDot();
+      }
+    });
+    socketInstance.on('connect', () => {
+      socketInstance.emit('user-lock-state', { isLocked });
+    });
+    if (socketInstance.connected) {
+      socketInstance.emit('user-lock-state', { isLocked });
+    }
+  }
+}
+
+export function showLockMessageDot() {
+  const dot = document.getElementById('lockNewMsgDot');
+  if (dot) {
+    dot.classList.remove('hidden');
+  }
+}
+
+export function hideLockMessageDot() {
+  const dot = document.getElementById('lockNewMsgDot');
+  if (dot) {
+    dot.classList.add('hidden');
+  }
+}
+
+export function isScreenLocked() {
+  return isLocked;
 }
 
 export function registerUserActivity() {
@@ -25,7 +56,7 @@ export function registerUserActivity() {
 }
 
 export function initInactivityLock(socket = null) {
-  if (socket) socketInstance = socket;
+  if (socket) setLockSocket(socket);
 
   ensureDOMReady(() => {
     createOverlayDOM();
@@ -106,9 +137,14 @@ function handleLockedTouch(e) {
 
 export function lockScreen(options = {}) {
   isLocked = true;
+  hideLockMessageDot();
   currentMode = options.mode || (window.hasEnteredChat ? 'inactivity' : 'login');
   localStorage.setItem(STORAGE_KEY_LOCKED, 'true');
   
+  if (socketInstance && socketInstance.connected) {
+    socketInstance.emit('user-lock-state', { isLocked: true });
+  }
+
   if (document.body) {
     document.body.classList.add('screen-locked');
   }
@@ -152,9 +188,14 @@ export function lockScreen(options = {}) {
 export function unlockScreen() {
   isLocked = false;
   failedAttempts = 0;
+  hideLockMessageDot();
   localStorage.removeItem(STORAGE_KEY_LOCKED);
   lastActivityTime = Date.now();
   
+  if (socketInstance && socketInstance.connected) {
+    socketInstance.emit('user-lock-state', { isLocked: false });
+  }
+
   if (document.body) {
     document.body.classList.remove('screen-locked');
   }
@@ -178,7 +219,10 @@ function createOverlayDOM() {
   overlay.id = 'inactivityLockOverlay';
   overlay.innerHTML = `
     <div class="lock-card" id="lockCard">
-      <div class="lock-icon">🔒</div>
+      <div class="lock-icon-container" id="lockIconContainer">
+        <div class="lock-icon" id="lockIcon">🔒</div>
+        <div class="lock-new-msg-dot hidden" id="lockNewMsgDot" title="New messages received"></div>
+      </div>
       <div class="lock-title" id="lockTitle">Security Clearance Required</div>
       <div class="lock-desc" id="lockDesc">Screen blurred for privacy.<br>Enter clearance password to enter chat.</div>
       <form class="lock-form" id="inactivityLockForm">
@@ -269,6 +313,9 @@ window.lockScreen = lockScreen;
 window.unlockScreen = unlockScreen;
 window.verifyLockPassword = verifyPassword;
 window.registerUserActivity = registerUserActivity;
+window.showLockMessageDot = showLockMessageDot;
+window.hideLockMessageDot = hideLockMessageDot;
+window.isScreenLocked = isScreenLocked;
 window.setInactivityTimeout = (seconds) => {
   INACTIVITY_TIMEOUT_MS = seconds * 1000;
   lastActivityTime = Date.now();

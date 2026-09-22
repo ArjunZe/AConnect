@@ -163,20 +163,31 @@ function roomUsers(roomName) {
   return room.users
     .map((socketId) => {
       const user = users.get(socketId);
-      return user ? { socketId, username: user.username } : null;
+      return user ? {
+        socketId,
+        username: user.username,
+        isLocked: user.isLocked !== false
+      } : null;
     })
     .filter(Boolean);
 }
 
 function emitRoomList(targetSocket) {
-  const roomList = Array.from(rooms.entries()).map(([name, details]) => ({
-    name,
-    count: details.users.length,
-    createdAt: details.createdAt,
-    messageCount: details.messageCount,
-    isPrivate: Boolean(details.password),
-    messageTTL: details.messageTTL
-  }));
+  const roomList = Array.from(rooms.entries()).map(([name, details]) => {
+    const activeUsers = details.users.map((id) => users.get(id)).filter(Boolean);
+    return {
+      name,
+      count: details.users.length,
+      users: activeUsers.map((u) => ({
+        username: u.username,
+        isLocked: u.isLocked !== false
+      })),
+      createdAt: details.createdAt,
+      messageCount: details.messageCount,
+      isPrivate: Boolean(details.password),
+      messageTTL: details.messageTTL
+    };
+  });
   targetSocket.emit('rooms-list', roomList);
 }
 
@@ -285,7 +296,7 @@ ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageT
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
-  users.set(socket.id, { username, room: null, joinedAt: new Date().toISOString() });
+  users.set(socket.id, { username, room: null, isLocked: true, joinedAt: new Date().toISOString() });
 
   socket.emit('welcome', { username, socketId: socket.id });
   emitOnlineCount();
@@ -294,6 +305,14 @@ chatNamespace.on('connection', (socket) => {
   socket.on('verify-lock-password', ({ password, roomName }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
       failedPasswordAttempts.delete(socket.id);
+      const user = users.get(socket.id);
+      if (user) {
+        user.isLocked = false;
+        if (user.room) {
+          chatNamespace.to(user.room).emit('room-users', roomUsers(user.room));
+        }
+        emitRoomList(chatNamespace);
+      }
       callback?.({ ok: true });
     } else {
       const user = users.get(socket.id);
@@ -316,6 +335,16 @@ chatNamespace.on('connection', (socket) => {
         });
       }
     }
+  });
+
+  socket.on('user-lock-state', ({ isLocked }) => {
+    const user = users.get(socket.id);
+    if (!user) return;
+    user.isLocked = isLocked !== false;
+    if (user.room) {
+      chatNamespace.to(user.room).emit('room-users', roomUsers(user.room));
+    }
+    emitRoomList(chatNamespace);
   });
 
   socket.on('update-room-ttl', (payload = {}, callback) => {

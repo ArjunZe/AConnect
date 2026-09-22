@@ -449,9 +449,10 @@ socket.on('room-purged', (data = {}) => {
   }
 });
 
-socket.on('join-room-error', () => {
-  // Silent clear on failed room access
-  cloudEngine.clear();
+socket.on('join-room-error', (data = {}) => {
+  if (data?.purged) {
+    cloudEngine.clear();
+  }
 });
 
 socket.on('room-ttl-updated', (data) => {
@@ -524,28 +525,47 @@ function attachOpponentStream(remoteStream) {
     opponentVideo.srcObject = remoteStream;
   }
 
+  const activateVideoUI = () => {
+    if (opponentVideoPlaceholder) {
+      opponentVideoPlaceholder.classList.add('hidden');
+      opponentVideoPlaceholder.style.display = 'none';
+    }
+    opponentVideo.style.display = 'block';
+    if (videoStatusText) {
+      videoStatusText.textContent = '❖ Opponent visual link active';
+    }
+  };
+
   const playVideo = () => {
     const p = opponentVideo.play();
     if (p !== undefined) {
-      p.catch((err) => {
+      p.then(() => {
+        activateVideoUI();
+      }).catch((err) => {
         console.warn('[WebRTC] Autoplay waiting on user interaction or metadata:', err);
       });
     }
   };
 
   playVideo();
-  opponentVideo.onloadedmetadata = playVideo;
+  opponentVideo.onloadedmetadata = () => {
+    playVideo();
+    activateVideoUI();
+  };
+  opponentVideo.oncanplay = () => {
+    playVideo();
+    activateVideoUI();
+  };
+  opponentVideo.onplaying = () => {
+    activateVideoUI();
+  };
 
   remoteStream.getVideoTracks().forEach((track) => {
-    track.onunmute = playVideo;
+    track.onunmute = () => {
+      playVideo();
+      activateVideoUI();
+    };
   });
-
-  if (opponentVideoPlaceholder) {
-    opponentVideoPlaceholder.classList.add('hidden');
-  }
-  if (videoStatusText) {
-    videoStatusText.textContent = 'Opponent visual link established';
-  }
 }
 
 function initVideoPeer(targetPeerId, initiator = false) {
@@ -553,10 +573,19 @@ function initVideoPeer(targetPeerId, initiator = false) {
     const existingPeer = videoPeers.get(targetPeerId);
     if (localVideoStream) {
       localVideoStream.getVideoTracks().forEach((track) => {
-        const senders = existingPeer.getSenders();
-        const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
-        if (!hasTrack) {
-          existingPeer.addTrack(track, localVideoStream);
+        const transceivers = existingPeer.getTransceivers ? existingPeer.getTransceivers() : [];
+        const videoTransceiver = transceivers.find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+        if (videoTransceiver && videoTransceiver.direction === 'recvonly') {
+          videoTransceiver.direction = 'sendrecv';
+          if (videoTransceiver.sender) {
+            videoTransceiver.sender.replaceTrack(track).catch(() => {});
+          }
+        } else {
+          const senders = existingPeer.getSenders();
+          const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+          if (!hasTrack) {
+            existingPeer.addTrack(track, localVideoStream);
+          }
         }
       });
     }
@@ -566,7 +595,13 @@ function initVideoPeer(targetPeerId, initiator = false) {
   const peer = createPeerConnection({
     localStream: localVideoStream,
     onIceCandidate: (candidate) => {
-      const payload = candidate?.toJSON ? candidate.toJSON() : candidate;
+      if (!candidate || !candidate.candidate) return;
+      const payload = {
+        candidate: candidate.candidate,
+        sdpMid: candidate.sdpMid,
+        sdpMLineIndex: candidate.sdpMLineIndex,
+        usernameFragment: candidate.usernameFragment
+      };
       socket.emit('video-feed-ice-candidate', {
         room: currentRoom,
         target: targetPeerId,
@@ -579,10 +614,34 @@ function initVideoPeer(targetPeerId, initiator = false) {
     onConnectionStateChange: (state) => {
       console.log(`[WebRTC ${targetPeerId}] Connection state:`, state);
       if (state === 'connected') {
-        if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.add('hidden');
-        if (videoStatusText) videoStatusText.textContent = 'Opponent visual link connected';
-      } else if (state === 'disconnected' || state === 'failed') {
-        if (videoStatusText) videoStatusText.textContent = 'Visual link reconnecting...';
+        if (opponentVideoPlaceholder) {
+          opponentVideoPlaceholder.classList.add('hidden');
+          opponentVideoPlaceholder.style.display = 'none';
+        }
+        opponentVideo.style.display = 'block';
+        if (videoStatusText) videoStatusText.textContent = '❖ Opponent visual link active';
+      } else if (state === 'connecting') {
+        if (videoStatusText && (!opponentVideo || !opponentVideo.srcObject)) {
+          videoStatusText.textContent = 'Negotiating peer route...';
+        }
+      } else if (state === 'disconnected') {
+        if (videoStatusText) videoStatusText.textContent = 'Visual link disconnected, reconnecting...';
+      } else if (state === 'failed') {
+        if (videoStatusText) videoStatusText.textContent = 'Direct route failed, attempting relay restart...';
+        try {
+          if (peer.restartIce) {
+            peer.restartIce();
+            if (initiator || peer._isPolite) {
+              createOffer(peer).then((offer) => {
+                socket.emit('video-feed-offer', {
+                  room: currentRoom,
+                  target: targetPeerId,
+                  offer
+                });
+              }).catch(() => {});
+            }
+          }
+        } catch (_) {}
       }
     }
   });
@@ -597,10 +656,19 @@ function initVideoPeer(targetPeerId, initiator = false) {
       }
       if (localVideoStream) {
         localVideoStream.getVideoTracks().forEach((track) => {
-          const senders = peer.getSenders();
-          const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
-          if (!hasTrack) {
-            peer.addTrack(track, localVideoStream);
+          const transceivers = peer.getTransceivers ? peer.getTransceivers() : [];
+          const videoTransceiver = transceivers.find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+          if (videoTransceiver && videoTransceiver.direction === 'recvonly') {
+            videoTransceiver.direction = 'sendrecv';
+            if (videoTransceiver.sender) {
+              videoTransceiver.sender.replaceTrack(track).catch(() => {});
+            }
+          } else {
+            const senders = peer.getSenders();
+            const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+            if (!hasTrack) {
+              peer.addTrack(track, localVideoStream);
+            }
           }
         });
       }
@@ -609,7 +677,7 @@ function initVideoPeer(targetPeerId, initiator = false) {
         socket.emit('video-feed-offer', {
           room: currentRoom,
           target: targetPeerId,
-          offer: peer.localDescription || offer
+          offer
         });
       } catch (err) {
         console.error('[WebRTC] Error creating video offer:', err);
@@ -631,6 +699,7 @@ async function startLiveVideo(joinRoomFeed = true) {
   }
   if (opponentVideoPlaceholder) {
     opponentVideoPlaceholder.classList.remove('hidden');
+    opponentVideoPlaceholder.style.display = '';
   }
   if (videoStatusText) {
     videoStatusText.textContent = 'Requesting camera (silent visual link)...';
@@ -706,6 +775,7 @@ function stopLiveVideo(notifyServer = true) {
   }
   if (opponentVideoPlaceholder) {
     opponentVideoPlaceholder.classList.remove('hidden');
+    opponentVideoPlaceholder.style.display = '';
   }
 
   if (liveVideoHUD) {
@@ -732,6 +802,12 @@ leftLiveVideoBtn?.addEventListener('click', toggleLiveVideo);
 dockVideoBtn?.addEventListener('click', toggleLiveVideo);
 closeVideoBtn?.addEventListener('click', () => stopLiveVideo(true));
 stopVideoFeedBtn?.addEventListener('click', () => stopLiveVideo(true));
+
+opponentVideo?.addEventListener('click', () => {
+  if (opponentVideo.paused && opponentVideo.srcObject) {
+    opponentVideo.play().catch(() => {});
+  }
+});
 
 minimizeVideoBtn?.addEventListener('click', () => {
   isVideoMinimized = !isVideoMinimized;
@@ -776,10 +852,19 @@ socket.on('video-feed-offer', async ({ from, offer, username }) => {
   // Ensure local tracks are attached before answering
   if (localVideoStream) {
     localVideoStream.getVideoTracks().forEach((track) => {
-      const senders = peer.getSenders();
-      const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
-      if (!hasTrack) {
-        peer.addTrack(track, localVideoStream);
+      const transceivers = peer.getTransceivers ? peer.getTransceivers() : [];
+      const videoTransceiver = transceivers.find((t) => t.receiver?.track?.kind === 'video' || t.sender?.track?.kind === 'video');
+      if (videoTransceiver && videoTransceiver.direction === 'recvonly') {
+        videoTransceiver.direction = 'sendrecv';
+        if (videoTransceiver.sender) {
+          videoTransceiver.sender.replaceTrack(track).catch(() => {});
+        }
+      } else {
+        const senders = peer.getSenders();
+        const hasTrack = senders.some((s) => s.track && s.track.kind === 'video');
+        if (!hasTrack) {
+          peer.addTrack(track, localVideoStream);
+        }
       }
     });
   }
@@ -805,7 +890,7 @@ socket.on('video-feed-offer', async ({ from, offer, username }) => {
     socket.emit('video-feed-answer', {
       room: currentRoom,
       target: from,
-      answer: peer.localDescription || answer
+      answer
     });
   } catch (err) {
     console.error('[WebRTC] Error handling video offer:', err);
@@ -846,7 +931,10 @@ socket.on('video-feed-peer-left', ({ peerId }) => {
   }
   if (videoPeers.size === 0) {
     if (opponentVideo) opponentVideo.srcObject = null;
-    if (opponentVideoPlaceholder) opponentVideoPlaceholder.classList.remove('hidden');
+    if (opponentVideoPlaceholder) {
+      opponentVideoPlaceholder.classList.remove('hidden');
+      opponentVideoPlaceholder.style.display = '';
+    }
     if (videoStatusText) videoStatusText.textContent = 'Opponent left visual link';
   }
 });

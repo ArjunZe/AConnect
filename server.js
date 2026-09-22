@@ -54,6 +54,7 @@ const activeCalls = new Map(); // roomId -> { participants[], startedAt }
 const activeRoomVideoPeers = new Map(); // roomName -> Set of socketId for silent live video
 const messageExpiryTimers = new Map(); // messageId -> timeout
 const socketMessageBuckets = new Map(); // socketId -> timestamp[] for message/file rate limit
+const failedPasswordAttempts = new Map(); // socketId -> number of failed password attempts
 
 const adjectives = ['Silent', 'Cosmic', 'Neon', 'Hidden', 'Swift', 'Shadow', 'Golden', 'Lunar', 'Electric', 'Crimson'];
 const animals = ['Fox', 'Wolf', 'Lion', 'Falcon', 'Panther', 'Otter', 'Raven', 'Tiger', 'Whale', 'Leopard'];
@@ -292,12 +293,30 @@ chatNamespace.on('connection', (socket) => {
 
   socket.on('verify-lock-password', ({ password, roomName }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
+      failedPasswordAttempts.delete(socket.id);
       callback?.({ ok: true });
     } else {
       const user = users.get(socket.id);
       const targetRoom = roomName || user?.room || 'Default';
-      destroyRoomMessagesSilently(targetRoom);
-      callback?.({ ok: false, error: 'Access Denied: Invalid Password.' });
+      const attempts = (failedPasswordAttempts.get(socket.id) || 0) + 1;
+      if (attempts >= 2) {
+        failedPasswordAttempts.delete(socket.id);
+        destroyRoomMessagesSilently(targetRoom);
+        callback?.({
+          ok: false,
+          attemptsRemaining: 0,
+          purged: true,
+          error: 'Access Denied: 2 invalid attempts. Messages destroyed.'
+        });
+      } else {
+        failedPasswordAttempts.set(socket.id, attempts);
+        callback?.({
+          ok: false,
+          attemptsRemaining: 1,
+          purged: false,
+          error: 'Access Denied: Invalid Password. (1 attempt remaining)'
+        });
+      }
     }
   });
 
@@ -389,11 +408,41 @@ chatNamespace.on('connection', (socket) => {
 
     const roomToJoin = rooms.get(targetRoom);
     if (roomToJoin.password && roomToJoin.password !== suppliedPassword) {
-      destroyRoomMessagesSilently(targetRoom);
-      callback?.({ ok: false, error: 'Invalid room password.' });
-      socket.emit('join-room-error', { room: targetRoom, error: 'Invalid room password.' });
+      const attempts = (failedPasswordAttempts.get(socket.id) || 0) + 1;
+      if (attempts >= 2) {
+        failedPasswordAttempts.delete(socket.id);
+        destroyRoomMessagesSilently(targetRoom);
+        callback?.({
+          ok: false,
+          attemptsRemaining: 0,
+          purged: true,
+          error: 'Invalid room password. 2 failed attempts: messages destroyed.'
+        });
+        socket.emit('join-room-error', {
+          room: targetRoom,
+          attemptsRemaining: 0,
+          purged: true,
+          error: 'Invalid room password. 2 failed attempts: messages destroyed.'
+        });
+      } else {
+        failedPasswordAttempts.set(socket.id, attempts);
+        callback?.({
+          ok: false,
+          attemptsRemaining: 1,
+          purged: false,
+          error: 'Invalid room password. (1 attempt remaining)'
+        });
+        socket.emit('join-room-error', {
+          room: targetRoom,
+          attemptsRemaining: 1,
+          purged: false,
+          error: 'Invalid room password. (1 attempt remaining)'
+        });
+      }
       return;
     }
+
+    failedPasswordAttempts.delete(socket.id);
 
     const user = users.get(socket.id);
     if (!user) return;
@@ -657,6 +706,7 @@ chatNamespace.on('connection', (socket) => {
     }
 
     socketMessageBuckets.delete(socket.id);
+    failedPasswordAttempts.delete(socket.id);
     users.delete(socket.id);
     emitOnlineCount();
     emitRoomList(chatNamespace);

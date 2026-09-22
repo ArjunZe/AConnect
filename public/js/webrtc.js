@@ -3,10 +3,20 @@ const rtcConfig = {
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' }
+    { urls: 'stun:stun.cloudflare.com:3478' },
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
-  iceCandidatePoolSize: 10
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require'
 };
 
 export async function getUserMediaStream() {
@@ -18,24 +28,36 @@ export async function getUserMediaStream() {
 }
 
 export async function getVideoOnlyStream() {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: false,
-      video: {
-        width: { ideal: 640, min: 320 },
-        height: { ideal: 480, min: 240 },
-        frameRate: { ideal: 24, max: 30 },
-        facingMode: 'user'
-      }
-    });
-    // Ensure any unexpected audio tracks are completely killed
+  const sanitize = (stream) => {
     stream.getAudioTracks().forEach((track) => {
       track.enabled = false;
       track.stop();
     });
     return stream;
-  } catch (error) {
-    throw new Error(`Unable to access camera: ${error.message}`);
+  };
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        width: { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 720 },
+        frameRate: { ideal: 24, max: 30 },
+        facingMode: 'user'
+      }
+    });
+    return sanitize(stream);
+  } catch (err) {
+    console.warn('[WebRTC] Camera ideal constraints failed, attempting basic fallback:', err);
+    try {
+      const fallbackStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: true
+      });
+      return sanitize(fallbackStream);
+    } catch (fallbackErr) {
+      throw new Error(`Unable to access camera: ${fallbackErr.message}`);
+    }
   }
 }
 
@@ -43,6 +65,7 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
   const peer = new RTCPeerConnection(rtcConfig);
   peer._pendingCandidates = [];
 
+  let hasVideoTrack = false;
   if (localStream) {
     localStream.getTracks().forEach((track) => {
       // If audio track somehow present in localStream, skip it
@@ -50,12 +73,24 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
         track.stop();
         return;
       }
-      peer.addTrack(track, localStream);
+      if (track.kind === 'video') {
+        hasVideoTrack = true;
+        peer.addTrack(track, localStream);
+      }
     });
   }
 
+  // Ensure peer is always ready to receive video even if local camera is unavailable or pending
+  if (!hasVideoTrack) {
+    try {
+      peer.addTransceiver('video', { direction: 'recvonly' });
+    } catch (err) {
+      console.warn('[WebRTC] Could not add recvonly video transceiver:', err);
+    }
+  }
+
   peer.onicecandidate = (event) => {
-    if (event.candidate && onIceCandidate) {
+    if (event.candidate && event.candidate.candidate && onIceCandidate) {
       onIceCandidate(event.candidate);
     }
   };
@@ -64,7 +99,9 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
     let stream = event.streams && event.streams[0];
     if (!stream) {
       stream = new MediaStream();
-      stream.addTrack(event.track);
+      if (event.track) {
+        stream.addTrack(event.track);
+      }
     }
     // Guarantee silent video: stop and mute any incoming audio tracks
     stream.getAudioTracks().forEach((track) => {
@@ -91,46 +128,67 @@ export async function createOffer(peer) {
     offerToReceiveAudio: false
   });
   await peer.setLocalDescription(offer);
-  return offer;
+  return {
+    type: peer.localDescription?.type || offer.type || 'offer',
+    sdp: peer.localDescription?.sdp || offer.sdp
+  };
 }
 
 export async function flushPendingCandidates(peer) {
   if (peer && peer._pendingCandidates && peer._pendingCandidates.length > 0) {
     const list = peer._pendingCandidates.splice(0);
     for (const cand of list) {
+      if (!cand || !cand.candidate) continue;
       try {
-        await peer.addIceCandidate(new RTCIceCandidate(cand));
+        await peer.addIceCandidate(cand);
       } catch (err) {
-        console.warn('Error applying queued candidate:', err);
+        try {
+          await peer.addIceCandidate(new RTCIceCandidate(cand));
+        } catch (e) {
+          console.warn('Error applying queued candidate:', e);
+        }
       }
     }
   }
 }
 
 export async function handleOffer(peer, offer) {
-  await peer.setRemoteDescription(new RTCSessionDescription(offer));
+  await peer.setRemoteDescription(new RTCSessionDescription({
+    type: offer.type || 'offer',
+    sdp: offer.sdp
+  }));
   await flushPendingCandidates(peer);
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
-  return answer;
+  return {
+    type: peer.localDescription?.type || answer.type || 'answer',
+    sdp: peer.localDescription?.sdp || answer.sdp
+  };
 }
 
 export async function handleAnswer(peer, answer) {
-  await peer.setRemoteDescription(new RTCSessionDescription(answer));
+  await peer.setRemoteDescription(new RTCSessionDescription({
+    type: answer.type || 'answer',
+    sdp: answer.sdp
+  }));
   await flushPendingCandidates(peer);
 }
 
 export async function handleIceCandidate(peer, candidate) {
-  if (!candidate) return;
+  if (!candidate || !candidate.candidate) return;
   if (!peer.remoteDescription || !peer.remoteDescription.type) {
     if (!peer._pendingCandidates) peer._pendingCandidates = [];
     peer._pendingCandidates.push(candidate);
     return;
   }
   try {
-    await peer.addIceCandidate(new RTCIceCandidate(candidate));
+    await peer.addIceCandidate(candidate);
   } catch (err) {
-    console.warn('Error adding ICE candidate:', err);
+    try {
+      await peer.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (e) {
+      console.warn('Error adding ICE candidate:', e);
+    }
   }
 }
 

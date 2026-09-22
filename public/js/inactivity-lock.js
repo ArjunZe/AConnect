@@ -13,6 +13,7 @@ let checkInterval = null;
 let isLocked = false;
 let socketInstance = null;
 let currentMode = 'login'; // 'login' | 'inactivity'
+let failedAttempts = 0;
 
 export function setLockSocket(socket) {
   socketInstance = socket;
@@ -150,6 +151,7 @@ export function lockScreen(options = {}) {
 
 export function unlockScreen() {
   isLocked = false;
+  failedAttempts = 0;
   localStorage.removeItem(STORAGE_KEY_LOCKED);
   lastActivityTime = Date.now();
   
@@ -215,6 +217,7 @@ export function verifyPassword(password) {
 
   const handleResult = (res) => {
     if (res?.ok) {
+      failedAttempts = 0;
       window.hasEnteredChat = true;
       localStorage.setItem('aconnect_room_pass', cleanPass);
       unlockScreen();
@@ -222,11 +225,20 @@ export function verifyPassword(password) {
         window.onSuccessfulUnlock(cleanPass);
       }
     } else {
-      // Wrong password: destroy all messages silently!
-      if (typeof window.onDestroyMessagesSilently === 'function') {
-        window.onDestroyMessagesSilently();
+      failedAttempts += 1;
+      const shouldPurge = Boolean(res?.purged) || failedAttempts >= 2;
+      if (shouldPurge) {
+        failedAttempts = 0;
+        // Wrong password 2nd attempt: destroy all messages silently!
+        if (typeof window.onDestroyMessagesSilently === 'function') {
+          window.onDestroyMessagesSilently();
+        }
       }
-      if (errorEl) errorEl.textContent = res?.error || 'Access Denied: Invalid Password.';
+      if (errorEl) {
+        errorEl.textContent = res?.error || (shouldPurge
+          ? 'Access Denied: 2 invalid attempts. Messages destroyed.'
+          : 'Access Denied: Invalid Password. (1 attempt remaining)');
+      }
       shakeCard(card);
     }
   };

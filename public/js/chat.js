@@ -1007,11 +1007,265 @@ opponentVideo?.addEventListener('click', () => {
   }
 });
 
+let lastExpandedHeight = '';
 minimizeVideoBtn?.addEventListener('click', () => {
   isVideoMinimized = !isVideoMinimized;
   liveVideoHUD?.classList.toggle('minimized', isVideoMinimized);
   minimizeVideoBtn.textContent = isVideoMinimized ? '□' : '_';
+  if (isVideoMinimized) {
+    lastExpandedHeight = liveVideoHUD.style.height;
+    liveVideoHUD.style.height = 'auto';
+  } else if (lastExpandedHeight) {
+    liveVideoHUD.style.height = lastExpandedHeight;
+  }
 });
+
+// ==========================================
+// Video HUD Draggable & Resizable System
+// ==========================================
+function initVideoHudInteractions() {
+  if (!liveVideoHUD) return;
+  const parentEl = liveVideoHUD.parentElement; // .word-cloud-viewport
+  if (!parentEl) return;
+
+  const headerEl = document.getElementById('videoHudHeader');
+  const resizeHandles = liveVideoHUD.querySelectorAll('.video-resize-handle');
+
+  let isDragging = false;
+  let isResizing = false;
+  let resizeDirection = '';
+
+  let startPointerX = 0;
+  let startPointerY = 0;
+  let startHudLeft = 0;
+  let startHudTop = 0;
+  let startHudWidth = 0;
+  let startHudHeight = 0;
+
+  function getPointerPos(e) {
+    if (e.touches && e.touches.length > 0) {
+      return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  // --- DRAG HANDLING ---
+  function onDragStart(e) {
+    // Ignore if clicking controls inside header
+    if (e.target.closest('.video-hud-controls') || e.target.closest('button')) {
+      return;
+    }
+    if (e.cancelable && e.type === 'touchstart') {
+      e.preventDefault();
+    }
+
+    const pos = getPointerPos(e);
+    startPointerX = pos.x;
+    startPointerY = pos.y;
+
+    const parentRect = parentEl.getBoundingClientRect();
+    const hudRect = liveVideoHUD.getBoundingClientRect();
+
+    startHudLeft = hudRect.left - parentRect.left;
+    startHudTop = hudRect.top - parentRect.top;
+
+    liveVideoHUD.style.left = `${Math.round(startHudLeft)}px`;
+    liveVideoHUD.style.top = `${Math.round(startHudTop)}px`;
+    liveVideoHUD.style.right = 'auto';
+    liveVideoHUD.style.bottom = 'auto';
+
+    isDragging = true;
+    liveVideoHUD.classList.add('is-dragging');
+
+    document.addEventListener('mousemove', onDragMove, { passive: false });
+    document.addEventListener('mouseup', onDragEnd);
+    document.addEventListener('touchmove', onDragMove, { passive: false });
+    document.addEventListener('touchend', onDragEnd);
+    document.addEventListener('touchcancel', onDragEnd);
+  }
+
+  function onDragMove(e) {
+    if (!isDragging) return;
+    if (e.cancelable) e.preventDefault();
+
+    const pos = getPointerPos(e);
+    const deltaX = pos.x - startPointerX;
+    const deltaY = pos.y - startPointerY;
+
+    const parentRect = parentEl.getBoundingClientRect();
+    const hudRect = liveVideoHUD.getBoundingClientRect();
+
+    let newLeft = startHudLeft + deltaX;
+    let newTop = startHudTop + deltaY;
+
+    const minLeft = 4;
+    const maxLeft = Math.max(minLeft, parentRect.width - hudRect.width - 4);
+    const minTop = 4;
+    const maxTop = Math.max(minTop, parentRect.height - hudRect.height - 4);
+
+    newLeft = Math.max(minLeft, Math.min(newLeft, maxLeft));
+    newTop = Math.max(minTop, Math.min(newTop, maxTop));
+
+    liveVideoHUD.style.left = `${Math.round(newLeft)}px`;
+    liveVideoHUD.style.top = `${Math.round(newTop)}px`;
+  }
+
+  function onDragEnd() {
+    if (!isDragging) return;
+    isDragging = false;
+    liveVideoHUD.classList.remove('is-dragging');
+
+    document.removeEventListener('mousemove', onDragMove);
+    document.removeEventListener('mouseup', onDragEnd);
+    document.removeEventListener('touchmove', onDragMove);
+    document.removeEventListener('touchend', onDragEnd);
+    document.removeEventListener('touchcancel', onDragEnd);
+  }
+
+  if (headerEl) {
+    headerEl.addEventListener('mousedown', onDragStart);
+    headerEl.addEventListener('touchstart', onDragStart, { passive: false });
+
+    // Double click header to reset to default bottom-right position
+    headerEl.addEventListener('dblclick', (e) => {
+      if (e.target.closest('.video-hud-controls')) return;
+      resetVideoHudPosition();
+    });
+  }
+
+  // --- RESIZE HANDLING ---
+  function onResizeStart(e, dir) {
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+
+    const pos = getPointerPos(e);
+    startPointerX = pos.x;
+    startPointerY = pos.y;
+
+    const parentRect = parentEl.getBoundingClientRect();
+    const hudRect = liveVideoHUD.getBoundingClientRect();
+
+    startHudLeft = hudRect.left - parentRect.left;
+    startHudTop = hudRect.top - parentRect.top;
+    startHudWidth = hudRect.width;
+    startHudHeight = hudRect.height;
+
+    liveVideoHUD.style.left = `${Math.round(startHudLeft)}px`;
+    liveVideoHUD.style.top = `${Math.round(startHudTop)}px`;
+    liveVideoHUD.style.right = 'auto';
+    liveVideoHUD.style.bottom = 'auto';
+
+    isResizing = true;
+    resizeDirection = dir;
+    liveVideoHUD.classList.add('is-resizing');
+
+    document.addEventListener('mousemove', onResizeMove, { passive: false });
+    document.addEventListener('mouseup', onResizeEnd);
+    document.addEventListener('touchmove', onResizeMove, { passive: false });
+    document.addEventListener('touchend', onResizeEnd);
+    document.addEventListener('touchcancel', onResizeEnd);
+  }
+
+  function onResizeMove(e) {
+    if (!isResizing) return;
+    if (e.cancelable) e.preventDefault();
+
+    const pos = getPointerPos(e);
+    const deltaX = pos.x - startPointerX;
+    const deltaY = pos.y - startPointerY;
+
+    const parentRect = parentEl.getBoundingClientRect();
+    const isMobile = window.innerWidth <= 768;
+    const minW = isMobile ? 140 : 160;
+    const maxW = Math.min(540, parentRect.width - 8);
+    const minH = isMobile ? 110 : 130;
+    const maxH = Math.min(480, parentRect.height - 8);
+
+    let newWidth = startHudWidth;
+    let newHeight = startHudHeight;
+    let newLeft = startHudLeft;
+    let newTop = startHudTop;
+
+    // East (right side): moves with deltaX
+    if (resizeDirection.includes('e')) {
+      newWidth = Math.max(minW, Math.min(startHudWidth + deltaX, maxW, parentRect.width - startHudLeft - 4));
+    }
+    // South (bottom side): moves with deltaY
+    if (resizeDirection.includes('s')) {
+      newHeight = Math.max(minH, Math.min(startHudHeight + deltaY, maxH, parentRect.height - startHudTop - 4));
+    }
+    // West (left side): pulling left increases width and adjusts left origin
+    if (resizeDirection.includes('w')) {
+      const candidateWidth = startHudWidth - deltaX;
+      const clampedWidth = Math.max(minW, Math.min(candidateWidth, maxW, startHudLeft + startHudWidth - 4));
+      newLeft = startHudLeft + (startHudWidth - clampedWidth);
+      newWidth = clampedWidth;
+    }
+    // North (top side): pulling up increases height and adjusts top origin
+    if (resizeDirection.includes('n')) {
+      const candidateHeight = startHudHeight - deltaY;
+      const clampedHeight = Math.max(minH, Math.min(candidateHeight, maxH, startHudTop + startHudHeight - 4));
+      newTop = startHudTop + (startHudHeight - clampedHeight);
+      newHeight = clampedHeight;
+    }
+
+    liveVideoHUD.style.width = `${Math.round(newWidth)}px`;
+    if (!liveVideoHUD.classList.contains('minimized')) {
+      liveVideoHUD.style.height = `${Math.round(newHeight)}px`;
+    }
+    liveVideoHUD.style.left = `${Math.round(newLeft)}px`;
+    liveVideoHUD.style.top = `${Math.round(newTop)}px`;
+  }
+
+  function onResizeEnd() {
+    if (!isResizing) return;
+    isResizing = false;
+    liveVideoHUD.classList.remove('is-resizing');
+
+    document.removeEventListener('mousemove', onResizeMove);
+    document.removeEventListener('mouseup', onResizeEnd);
+    document.removeEventListener('touchmove', onResizeMove);
+    document.removeEventListener('touchend', onResizeEnd);
+    document.removeEventListener('touchcancel', onResizeEnd);
+  }
+
+  resizeHandles.forEach((handle) => {
+    const dir = handle.dataset.direction;
+    handle.addEventListener('mousedown', (e) => onResizeStart(e, dir));
+    handle.addEventListener('touchstart', (e) => onResizeStart(e, dir), { passive: false });
+  });
+
+  // Clamp within bounds on window resize
+  window.addEventListener('resize', () => {
+    if (!liveVideoHUD || liveVideoHUD.classList.contains('hidden')) return;
+    if (liveVideoHUD.style.left && liveVideoHUD.style.top) {
+      const parentRect = parentEl.getBoundingClientRect();
+      const hudRect = liveVideoHUD.getBoundingClientRect();
+
+      const maxLeft = Math.max(4, parentRect.width - hudRect.width - 4);
+      const maxTop = Math.max(4, parentRect.height - hudRect.height - 4);
+
+      const currentLeft = parseFloat(liveVideoHUD.style.left) || 4;
+      const currentTop = parseFloat(liveVideoHUD.style.top) || 4;
+
+      liveVideoHUD.style.left = `${Math.round(Math.max(4, Math.min(currentLeft, maxLeft)))}px`;
+      liveVideoHUD.style.top = `${Math.round(Math.max(4, Math.min(currentTop, maxTop)))}px`;
+    }
+  });
+
+  function resetVideoHudPosition() {
+    liveVideoHUD.style.left = '';
+    liveVideoHUD.style.top = '';
+    liveVideoHUD.style.right = '';
+    liveVideoHUD.style.bottom = '';
+    liveVideoHUD.style.width = '';
+    liveVideoHUD.style.height = '';
+  }
+
+  window.resetVideoHudPosition = resetVideoHudPosition;
+}
+
+initVideoHudInteractions();
 
 toggleSelfCamBtn?.addEventListener('click', () => {
   if (!localVideoStream) return;

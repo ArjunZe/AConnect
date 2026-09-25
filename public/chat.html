@@ -110,9 +110,16 @@
         </div>
 
         <!-- Floating Holographic Live Video Feed (Opponent Cam, Strictly Silent) -->
-        <div id="liveVideoHUD" class="live-video-hud hidden">
-          <div class="video-hud-header">
+        <div id="liveVideoHUD" class="live-video-hud hidden" title="Drag to reposition, pull corners to resize">
+          <!-- Corner Resize Handles (Touch & Mouse Draggable) -->
+          <div class="video-resize-handle handle-nw" data-direction="nw" title="Drag to resize"></div>
+          <div class="video-resize-handle handle-ne" data-direction="ne" title="Drag to resize"></div>
+          <div class="video-resize-handle handle-sw" data-direction="sw" title="Drag to resize"></div>
+          <div class="video-resize-handle handle-se" data-direction="se" title="Drag to resize"></div>
+
+          <div class="video-hud-header" id="videoHudHeader" title="Drag to reposition • Double-click to reset">
             <div class="video-hud-title">
+              <span class="video-drag-handle-grip" title="Drag to reposition">⠿</span>
               <span class="video-live-dot"></span>
               <span class="video-hud-label">❖ OPPONENT LIVE FEED</span>
               <span class="video-silent-badge">🔇 SILENT</span>

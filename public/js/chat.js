@@ -85,6 +85,13 @@ window.onScreenLocked = () => {
   if (isLiveVideoActive) {
     stopLiveVideo(true);
   }
+  const groupNotesModal = document.getElementById('groupNotesModal');
+  if (groupNotesModal) {
+    groupNotesModal.classList.add('hidden');
+  }
+  if (typeof window.resetNotesAuth === 'function') {
+    window.resetNotesAuth();
+  }
 };
 
 // Hook up login unlock completion
@@ -512,6 +519,7 @@ socket.on('room-joined', (data) => {
 
   updateRoomUsers(data.users);
   cloudEngine.setMessages(data.history || [], currentMessageTTL, mySocketId);
+  window.dispatchEvent(new CustomEvent('room-switched', { detail: { room: data.room } }));
 });
 
 socket.on('force-lock-screen', (data) => {
@@ -1391,5 +1399,298 @@ socket.on('video-feed-peer-left', ({ peerId }) => {
   }
 });
 
+/* ==========================================================================
+   Group Encrypted Notes System
+   ========================================================================== */
+function initGroupNotesSystem() {
+  const groupNotesModal = document.getElementById('groupNotesModal');
+  const closeNotesModal = document.getElementById('closeNotesModal');
+  const notesRoomLabel = document.getElementById('notesRoomLabel');
+  const notesAuthBar = document.getElementById('notesAuthBar');
+  const notesPassInput = document.getElementById('notesPassInput');
+  const authNotesBtn = document.getElementById('authNotesBtn');
+  const notesAuthError = document.getElementById('notesAuthError');
+  const notesContentSection = document.getElementById('notesContentSection');
+  const newNoteForm = document.getElementById('newNoteForm');
+  const newNoteText = document.getElementById('newNoteText');
+  const noteCharCounter = document.getElementById('noteCharCounter');
+  const saveNoteBtn = document.getElementById('saveNoteBtn');
+  const notesCountBadge = document.getElementById('notesCountBadge');
+  const refreshNotesBtn = document.getElementById('refreshNotesBtn');
+  const notesList = document.getElementById('notesList');
+
+  const groupNotesBtn = document.getElementById('groupNotesBtn');
+  const mobileGroupNotesBtn = document.getElementById('mobileGroupNotesBtn');
+  const dockNotesBtn = document.getElementById('dockNotesBtn');
+
+  let groupNotesUnlocked = false;
+  let authenticatedRoomPassword = '';
+  let activeNotesRoom = '';
+  let cachedNotes = [];
+
+  window.resetNotesAuth = () => {
+    groupNotesUnlocked = false;
+    authenticatedRoomPassword = '';
+    cachedNotes = [];
+  };
+
+  function renderNotes(notes = []) {
+    cachedNotes = notes;
+    if (notesCountBadge) {
+      notesCountBadge.textContent = String(notes.length);
+    }
+
+    if (!notesList) return;
+
+    if (!notes.length) {
+      notesList.innerHTML = `
+        <div class="notes-empty-state">
+          <div class="notes-empty-icon">📝</div>
+          <div>No notes posted in this room yet.</div>
+          <div style="font-size: 11px; margin-top: 4px; opacity: 0.7;">Write an encrypted note above to share with group members.</div>
+        </div>
+      `;
+      return;
+    }
+
+    notesList.innerHTML = notes.map((note) => {
+      const safeText = escapeHtml(note.text || '');
+      const safeAuthor = escapeHtml(note.author || 'Anonymous');
+      const safeId = escapeHtml(note.id || '');
+      let timeStr = '';
+      try {
+        const d = new Date(note.createdAt);
+        timeStr = isNaN(d.getTime()) ? '' : d.toLocaleString([], {
+          month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+        });
+      } catch (_) {
+        timeStr = '';
+      }
+
+      return `
+        <div class="note-card" data-id="${safeId}">
+          <div class="note-card-text">${safeText}</div>
+          <div class="note-card-footer">
+            <span class="note-author">👤 ${safeAuthor} ${timeStr ? `• ${timeStr}` : ''}</span>
+            <button class="note-delete-btn" data-id="${safeId}" title="Delete this note">🗑️ Delete</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function fetchNotes(room, password) {
+    socket.emit('get-room-notes', { room, password }, (response) => {
+      if (response?.ok) {
+        renderNotes(response.notes || []);
+      }
+    });
+  }
+
+  function attemptUnlockNotes(room, password, silent = false) {
+    const cleanPass = String(password || '').trim();
+    if (!cleanPass) {
+      if (!silent && notesAuthError) {
+        notesAuthError.textContent = 'Please enter the group password.';
+        notesAuthError.classList.remove('hidden');
+      }
+      return;
+    }
+
+    if (authNotesBtn) authNotesBtn.disabled = true;
+
+    socket.emit('get-room-notes', { room, password: cleanPass }, (response) => {
+      if (authNotesBtn) authNotesBtn.disabled = false;
+
+      if (response?.ok) {
+        groupNotesUnlocked = true;
+        authenticatedRoomPassword = cleanPass;
+        activeNotesRoom = room;
+        localStorage.setItem('aconnect_room_pass', cleanPass);
+
+        notesAuthBar?.classList.add('hidden');
+        notesContentSection?.classList.remove('hidden');
+        if (notesAuthError) {
+          notesAuthError.textContent = '';
+          notesAuthError.classList.add('hidden');
+        }
+        renderNotes(response.notes || []);
+      } else {
+        groupNotesUnlocked = false;
+        authenticatedRoomPassword = '';
+        if (!silent && notesAuthError) {
+          notesAuthError.textContent = response?.error || 'Incorrect group password.';
+          notesAuthError.classList.remove('hidden');
+        }
+      }
+    });
+  }
+
+  function openGroupNotesModal() {
+    const targetRoom = currentRoom || window.currentRoomName || 'Default';
+
+    if (notesRoomLabel) {
+      notesRoomLabel.textContent = `Room: ${targetRoom} • Encrypted Vault`;
+    }
+
+    if (activeNotesRoom !== targetRoom) {
+      groupNotesUnlocked = false;
+      authenticatedRoomPassword = '';
+      activeNotesRoom = targetRoom;
+    }
+
+    if (notesAuthError) {
+      notesAuthError.textContent = '';
+      notesAuthError.classList.add('hidden');
+    }
+
+    groupNotesModal?.classList.remove('hidden');
+
+    if (groupNotesUnlocked && authenticatedRoomPassword) {
+      notesAuthBar?.classList.add('hidden');
+      notesContentSection?.classList.remove('hidden');
+      fetchNotes(activeNotesRoom, authenticatedRoomPassword);
+    } else {
+      const storedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';
+      if (notesPassInput) {
+        notesPassInput.value = storedPass;
+      }
+      notesAuthBar?.classList.remove('hidden');
+      notesContentSection?.classList.add('hidden');
+
+      if (storedPass) {
+        attemptUnlockNotes(activeNotesRoom, storedPass, true);
+      }
+      setTimeout(() => notesPassInput?.focus(), 120);
+    }
+  }
+
+  // Trigger buttons
+  groupNotesBtn?.addEventListener('click', openGroupNotesModal);
+  mobileGroupNotesBtn?.addEventListener('click', openGroupNotesModal);
+  dockNotesBtn?.addEventListener('click', openGroupNotesModal);
+
+  // Close modal
+  closeNotesModal?.addEventListener('click', () => {
+    groupNotesModal?.classList.add('hidden');
+  });
+
+  groupNotesModal?.addEventListener('click', (e) => {
+    if (e.target === groupNotesModal) {
+      groupNotesModal.classList.add('hidden');
+    }
+  });
+
+  // Auth button & Enter key
+  authNotesBtn?.addEventListener('click', () => {
+    const pass = notesPassInput?.value || '';
+    attemptUnlockNotes(activeNotesRoom || currentRoom || 'Default', pass, false);
+  });
+
+  notesPassInput?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const pass = notesPassInput.value || '';
+      attemptUnlockNotes(activeNotesRoom || currentRoom || 'Default', pass, false);
+    }
+  });
+
+  // Character counter
+  newNoteText?.addEventListener('input', () => {
+    if (noteCharCounter) {
+      noteCharCounter.textContent = `${newNoteText.value.length} / 2000`;
+    }
+  });
+
+  // Submit new note
+  newNoteForm?.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const text = newNoteText?.value?.trim();
+    if (!text) return;
+
+    if (!groupNotesUnlocked || !authenticatedRoomPassword) {
+      alert('Please unlock notes first.');
+      return;
+    }
+
+    if (saveNoteBtn) saveNoteBtn.disabled = true;
+
+    socket.emit('add-room-note', {
+      room: activeNotesRoom || currentRoom || 'Default',
+      password: authenticatedRoomPassword,
+      text
+    }, (response) => {
+      if (saveNoteBtn) saveNoteBtn.disabled = false;
+
+      if (response?.ok) {
+        if (newNoteText) newNoteText.value = '';
+        if (noteCharCounter) noteCharCounter.textContent = '0 / 2000';
+        renderNotes(response.notes || []);
+      } else {
+        alert(response?.error || 'Failed to post note.');
+      }
+    });
+  });
+
+  // Delete note (delegated)
+  notesList?.addEventListener('click', (e) => {
+    const deleteBtn = e.target.closest('.note-delete-btn');
+    if (!deleteBtn) return;
+
+    const noteId = deleteBtn.dataset.id;
+    if (!noteId) return;
+
+    if (!confirm('Are you sure you want to delete this note?')) return;
+
+    if (!groupNotesUnlocked || !authenticatedRoomPassword) {
+      alert('Please authenticate first.');
+      return;
+    }
+
+    deleteBtn.disabled = true;
+
+    socket.emit('delete-room-note', {
+      room: activeNotesRoom || currentRoom || 'Default',
+      password: authenticatedRoomPassword,
+      noteId
+    }, (response) => {
+      if (response?.ok) {
+        renderNotes(response.notes || []);
+      } else {
+        deleteBtn.disabled = false;
+        alert(response?.error || 'Failed to delete note.');
+      }
+    });
+  });
+
+  // Refresh button
+  refreshNotesBtn?.addEventListener('click', () => {
+    if (groupNotesUnlocked && authenticatedRoomPassword) {
+      fetchNotes(activeNotesRoom || currentRoom || 'Default', authenticatedRoomPassword);
+    }
+  });
+
+  // Real-time note sync
+  socket.on('room-notes-updated', (data) => {
+    if (data?.room === (activeNotesRoom || currentRoom) && groupNotesUnlocked) {
+      renderNotes(data.notes || []);
+    }
+  });
+
+  // Room switched
+  window.addEventListener('room-switched', (e) => {
+    const newRoom = e.detail?.room || currentRoom;
+    if (activeNotesRoom && activeNotesRoom !== newRoom) {
+      activeNotesRoom = newRoom;
+      groupNotesUnlocked = false;
+      authenticatedRoomPassword = '';
+      if (groupNotesModal && !groupNotesModal.classList.contains('hidden')) {
+        openGroupNotesModal();
+      }
+    }
+  });
+}
+
+initGroupNotesSystem();
 setupEmojiPicker();
 socket.emit('get-rooms');

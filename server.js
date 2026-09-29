@@ -133,6 +133,7 @@ function ensureRoom(roomName, options = {}) {
       createdAt: new Date().toISOString(),
       messageCount: 0,
       messages: [],
+      notes: [],
       password: options.password || '',
       ownerId: options.ownerId || null,
       messageTTL: options.messageTTL || 0,
@@ -140,6 +141,7 @@ function ensureRoom(roomName, options = {}) {
     });
   }
   const room = rooms.get(roomName);
+  if (!room.notes) room.notes = [];
   if (options.password !== undefined && room.ownerId === options.ownerId) {
     room.password = options.password;
   }
@@ -265,6 +267,15 @@ function verifyLockPassword(password, socketId) {
   }
 
   return false;
+}
+
+function verifyRoomPassword(roomName, password) {
+  const cleanPass = String(password || '').trim();
+  if (!cleanPass) return false;
+  const room = rooms.get(roomName);
+  if (!room) return false;
+  const expectedPass = room.password || DEFAULT_ROOM_PASSWORD;
+  return cleanPass === expectedPass || cleanPass === DEFAULT_ROOM_PASSWORD;
 }
 
 function destroyRoomMessagesSilently(roomName) {
@@ -440,6 +451,88 @@ chatNamespace.on('connection', (socket) => {
     emitRoomList(chatNamespace);
 
     callback?.({ ok: true, room: targetRoomName, messageTTL: numericTTL });
+  });
+
+  socket.on('get-room-notes', (payload = {}, callback) => {
+    const user = users.get(socket.id);
+    const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
+    if (!rooms.has(targetRoomName)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+    const suppliedPass = String(payload?.password || '').trim();
+    if (!verifyRoomPassword(targetRoomName, suppliedPass)) {
+      callback?.({ ok: false, error: 'Incorrect group password.' });
+      return;
+    }
+    const room = rooms.get(targetRoomName);
+    callback?.({ ok: true, room: targetRoomName, notes: room.notes || [] });
+  });
+
+  socket.on('add-room-note', (payload = {}, callback) => {
+    const user = users.get(socket.id);
+    const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
+    if (!rooms.has(targetRoomName)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+    const suppliedPass = String(payload?.password || '').trim();
+    if (!verifyRoomPassword(targetRoomName, suppliedPass)) {
+      callback?.({ ok: false, error: 'Incorrect group password.' });
+      return;
+    }
+    const text = sanitizeText(payload?.text, 2000);
+    if (!text) {
+      callback?.({ ok: false, error: 'Note text cannot be empty.' });
+      return;
+    }
+    const room = rooms.get(targetRoomName);
+    if (!room.notes) room.notes = [];
+    const note = {
+      id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      text,
+      author: user?.username || 'Anonymous',
+      createdAt: new Date().toISOString()
+    };
+    room.notes.unshift(note);
+
+    chatNamespace.to(targetRoomName).emit('room-notes-updated', {
+      room: targetRoomName,
+      notes: room.notes,
+      addedBy: user?.username || 'Anonymous'
+    });
+
+    callback?.({ ok: true, room: targetRoomName, note, notes: room.notes });
+  });
+
+  socket.on('delete-room-note', (payload = {}, callback) => {
+    const user = users.get(socket.id);
+    const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
+    if (!rooms.has(targetRoomName)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+    const suppliedPass = String(payload?.password || '').trim();
+    if (!verifyRoomPassword(targetRoomName, suppliedPass)) {
+      callback?.({ ok: false, error: 'Incorrect group password.' });
+      return;
+    }
+    const noteId = String(payload?.noteId || '');
+    if (!noteId) {
+      callback?.({ ok: false, error: 'Note ID is required.' });
+      return;
+    }
+    const room = rooms.get(targetRoomName);
+    if (!room.notes) room.notes = [];
+    room.notes = room.notes.filter((n) => n.id !== noteId);
+
+    chatNamespace.to(targetRoomName).emit('room-notes-updated', {
+      room: targetRoomName,
+      notes: room.notes,
+      deletedBy: user?.username || 'Anonymous'
+    });
+
+    callback?.({ ok: true, room: targetRoomName, deletedId: noteId, notes: room.notes });
   });
 
   socket.on('get-rooms', () => emitRoomList(socket));

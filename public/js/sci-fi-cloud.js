@@ -264,9 +264,10 @@ export class SciFiCloudEngine {
         }
       });
     } else if (this.viewMode === 'chrono') {
-      // Chrono Flow: Single column on mobile, 2 columns on desktop
+      // Chrono Flow: 2 columns on mobile and desktop
       const rowHeight = isMobile ? 65 : 75;
-      const startY = isMobile ? 70 : 80;
+      const startY = isMobile ? 65 : 80;
+      const colOffset = isMobile ? Math.min(95, w * 0.24) : Math.min(220, w * 0.25);
 
       this.messages.forEach((msg, idx) => {
         const state = this.nodeStates.get(msg.id);
@@ -274,20 +275,15 @@ export class SciFiCloudEngine {
 
         const indexFromLatest = total - 1 - idx; // 0 = newest at top
 
-        if (isMobile) {
+        if (indexFromLatest === 0) {
           state.targetX = centerX;
-          state.targetY = startY + indexFromLatest * rowHeight;
+          state.targetY = startY;
         } else {
           const col = indexFromLatest % 2;
           const row = Math.floor(indexFromLatest / 2);
-          if (indexFromLatest === 0) {
-            state.targetX = centerX;
-            state.targetY = startY;
-          } else {
-            const offsetX = (col === 0 ? -1 : 1) * Math.min(220, w * 0.25);
-            state.targetX = centerX + offsetX;
-            state.targetY = startY + 50 + row * rowHeight;
-          }
+          const offsetX = (col === 0 ? -1 : 1) * colOffset;
+          state.targetX = centerX + offsetX;
+          state.targetY = startY + (isMobile ? 55 : 50) + row * rowHeight;
         }
       });
     } else if (this.viewMode === 'heatmap') {
@@ -512,11 +508,13 @@ export class SciFiCloudEngine {
     const authorMetrics = ctx.measureText(`${authorStr} • ${relTime}`);
     const headerWidth = authorMetrics.width + (isLatest ? (isMobile ? 80 : 120) : 40);
 
-    const paddingX = Math.floor((isMobile ? 12 : 16) * scale);
-    const maxAllowedWidth = canvasW - 24;
-    const calculatedNodeW = Math.max(isMobile ? 150 : 180 * (scale > 1.8 ? 1.3 : 1), Math.max(textWidth, headerWidth) + paddingX * 2);
+    const isChronoMobile = this.viewMode === 'chrono' && isMobile;
+    const paddingX = Math.floor((isChronoMobile ? 8 : (isMobile ? 12 : 16)) * scale);
+    const maxAllowedWidth = isChronoMobile ? Math.min(canvasW * 0.46, 175) : canvasW - 24;
+    const minNodeW = isChronoMobile ? Math.min(120, canvasW * 0.42) : (isMobile ? 150 : 180 * (scale > 1.8 ? 1.3 : 1));
+    const calculatedNodeW = Math.max(minNodeW, Math.max(textWidth, headerWidth) + paddingX * 2);
     const nodeWidth = Math.min(calculatedNodeW, maxAllowedWidth);
-    const nodeHeight = Math.floor((isLatest ? (isMobile ? 62 : 74) : (isMobile ? 54 : 64)) * (scale > 1.8 ? 1.25 : 1));
+    const nodeHeight = Math.floor((isLatest ? (isMobile ? 60 : 74) : (isMobile ? 52 : 64)) * (scale > 1.8 ? 1.25 : 1));
 
     state.width = nodeWidth;
     state.height = nodeHeight;
@@ -526,7 +524,8 @@ export class SciFiCloudEngine {
     
     // Clamp rectX strictly within screen bounds
     let rectX = x - halfW;
-    rectX = Math.max(12, Math.min(canvasW - nodeWidth - 12, rectX));
+    const edgeMargin = isChronoMobile ? 4 : 12;
+    rectX = Math.max(edgeMargin, Math.min(canvasW - nodeWidth - edgeMargin, rectX));
     const rectY = y - halfH;
     const radius = Math.min(12, Math.floor(8 * scale));
 

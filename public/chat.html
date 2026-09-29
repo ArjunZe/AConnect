@@ -33,6 +33,7 @@
           <option value="300000">⚡ 5m Expire</option>
           <option value="0">♾️ Persistent</option>
         </select>
+        <button id="groupNotesBtn" class="sci-notes-btn" title="Group Encrypted Notes (Password Required)">📝 Notes</button>
         <span class="room-user-count" id="currentRoomCount" title="Connected Users Status"></span>
       </div>
     </header>
@@ -73,6 +74,7 @@
               <option value="rooms">📁 Rooms Matrix</option>
               <option value="active">👥 Connected Nodes</option>
             </select>
+            <button id="mobileGroupNotesBtn" class="sci-select notes-btn-mobile" title="Group Encrypted Notes">📝 Notes</button>
           </div>
         </div>
 
@@ -86,6 +88,7 @@
         <div class="hud-floating-actions-right">
           <button id="liveVideoBtn" class="sci-video-icon-btn" title="Toggle Silent Live Video Feed (Opponent Cam)">📹</button>
           <button id="instantLockBtn" class="sci-instant-lock-btn" title="Lock Screen & Remote Lock Nodes">🔒</button>
+          <button id="dockNotesBtn" class="sci-notes-icon-btn" title="Group Encrypted Notes">📝</button>
           <button id="purgeMessagesBtn" class="sci-purge-icon-btn" title="Destroy all room messages immediately">🗑️</button>
         </div>
 
@@ -191,7 +194,7 @@
           </div>
         </div>
 
-        <div id="typingIndicator" class="typing-indicator" style="position: absolute; bottom: 10px; left: 20px; z-index: 10; font-size: 12px; color: var(--accent-cyan);"></div>
+        <div id="typingIndicator" class="typing-indicator"></div>
       </main>
 
       <!-- Right Sidebar: Active Users -->
@@ -240,6 +243,55 @@
       <div class="modal-actions">
         <button id="cancelRoom" class="btn btn-ghost">Cancel</button>
         <button id="saveRoom" class="btn btn-primary">Initialize Room</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Group Notes Modal -->
+  <div id="groupNotesModal" class="modal-backdrop hidden">
+    <div class="modal notes-modal">
+      <div class="notes-modal-header">
+        <div class="notes-modal-title">
+          <span class="notes-icon">📝</span>
+          <div>
+            <div class="notes-main-title">GROUP ENCRYPTED NOTES</div>
+            <div class="notes-sub-title" id="notesRoomLabel">Room: Default • Encrypted Vault</div>
+          </div>
+        </div>
+        <button id="closeNotesModal" class="close-inspect-btn" title="Close Notes">✕</button>
+      </div>
+
+      <!-- Password Authentication Bar -->
+      <div class="notes-auth-bar" id="notesAuthBar">
+        <div class="notes-auth-desc">Enter the group/room clearance password to decrypt notes:</div>
+        <div class="notes-auth-input-group">
+          <input type="password" id="notesPassInput" class="input-field notes-pass-input" placeholder="Enter group password" autocomplete="off" />
+          <button id="authNotesBtn" class="btn btn-primary btn-sm">Unlock Notes 🔓</button>
+        </div>
+        <div id="notesAuthError" class="notes-auth-error hidden"></div>
+      </div>
+
+      <!-- Notes Content (Shown when authenticated) -->
+      <div id="notesContentSection" class="notes-content-section hidden">
+        <!-- New Note Form -->
+        <form id="newNoteForm" class="new-note-form">
+          <textarea id="newNoteText" class="sci-textarea" maxlength="2000" rows="3" placeholder="Write an encrypted group note / cipher / task..." required></textarea>
+          <div class="new-note-actions">
+            <span class="note-char-counter" id="noteCharCounter">0 / 2000</span>
+            <button type="submit" id="saveNoteBtn" class="btn btn-primary btn-sm">➕ Post Note</button>
+          </div>
+        </form>
+
+        <!-- Notes List Container -->
+        <div class="notes-list-wrap">
+          <div class="notes-list-header">
+            <span>SAVED NOTES (<span id="notesCountBadge">0</span>)</span>
+            <button id="refreshNotesBtn" class="btn-ghost-sm" title="Refresh Notes">↻ Refresh</button>
+          </div>
+          <div id="notesList" class="notes-cards-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
       </div>
     </div>
   </div>

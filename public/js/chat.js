@@ -519,7 +519,10 @@ socket.on('room-joined', (data) => {
 
   updateRoomUsers(data.users);
   cloudEngine.setMessages(data.history || [], currentMessageTTL, mySocketId);
-  window.dispatchEvent(new CustomEvent('room-switched', { detail: { room: data.room } }));
+  window.dispatchEvent(new CustomEvent('room-switched', { detail: { room: data.room, notesCount: data.notesCount } }));
+  if (data.notesCount !== undefined && typeof window.updateDockNotesBadge === 'function') {
+    window.updateDockNotesBadge(data.notesCount);
+  }
 });
 
 socket.on('force-lock-screen', (data) => {
@@ -1418,15 +1421,32 @@ function initGroupNotesSystem() {
   const notesCountBadge = document.getElementById('notesCountBadge');
   const refreshNotesBtn = document.getElementById('refreshNotesBtn');
   const notesList = document.getElementById('notesList');
-
-  const groupNotesBtn = document.getElementById('groupNotesBtn');
-  const mobileGroupNotesBtn = document.getElementById('mobileGroupNotesBtn');
   const dockNotesBtn = document.getElementById('dockNotesBtn');
+  const dockNotesBadge = document.getElementById('dockNotesBadge');
 
   let groupNotesUnlocked = false;
   let authenticatedRoomPassword = '';
   let activeNotesRoom = '';
   let cachedNotes = [];
+
+  function updateDockNotesBadge(count, animate = false) {
+    if (!dockNotesBadge) return;
+    const num = Number(count) || 0;
+    if (num > 0) {
+      dockNotesBadge.textContent = num > 99 ? '99+' : String(num);
+      dockNotesBadge.classList.remove('hidden');
+      if (animate) {
+        dockNotesBadge.classList.remove('pulse');
+        void dockNotesBadge.offsetWidth;
+        dockNotesBadge.classList.add('pulse');
+      }
+    } else {
+      dockNotesBadge.textContent = '0';
+      dockNotesBadge.classList.add('hidden');
+    }
+  }
+
+  window.updateDockNotesBadge = updateDockNotesBadge;
 
   window.resetNotesAuth = () => {
     groupNotesUnlocked = false;
@@ -1439,6 +1459,7 @@ function initGroupNotesSystem() {
     if (notesCountBadge) {
       notesCountBadge.textContent = String(notes.length);
     }
+    updateDockNotesBadge(notes.length);
 
     if (!notesList) return;
 
@@ -1565,9 +1586,7 @@ function initGroupNotesSystem() {
     }
   }
 
-  // Trigger buttons
-  groupNotesBtn?.addEventListener('click', openGroupNotesModal);
-  mobileGroupNotesBtn?.addEventListener('click', openGroupNotesModal);
+  // Trigger button (bottom dock icon)
   dockNotesBtn?.addEventListener('click', openGroupNotesModal);
 
   // Close modal
@@ -1672,14 +1691,21 @@ function initGroupNotesSystem() {
 
   // Real-time note sync
   socket.on('room-notes-updated', (data) => {
-    if (data?.room === (activeNotesRoom || currentRoom) && groupNotesUnlocked) {
-      renderNotes(data.notes || []);
+    if (data?.room === (activeNotesRoom || currentRoom)) {
+      const count = data.notesCount !== undefined ? data.notesCount : (data.notes?.length || 0);
+      updateDockNotesBadge(count, Boolean(data.addedBy));
+      if (groupNotesUnlocked) {
+        renderNotes(data.notes || []);
+      }
     }
   });
 
   // Room switched
   window.addEventListener('room-switched', (e) => {
     const newRoom = e.detail?.room || currentRoom;
+    if (e.detail?.notesCount !== undefined) {
+      updateDockNotesBadge(e.detail.notesCount);
+    }
     if (activeNotesRoom && activeNotesRoom !== newRoom) {
       activeNotesRoom = newRoom;
       groupNotesUnlocked = false;

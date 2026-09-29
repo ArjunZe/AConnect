@@ -33,7 +33,6 @@
           <option value="300000">⚡ 5m Expire</option>
           <option value="0">♾️ Persistent</option>
         </select>
-        <button id="groupNotesBtn" class="sci-notes-btn" title="Group Encrypted Notes (Password Required)">📝 Notes</button>
         <span class="room-user-count" id="currentRoomCount" title="Connected Users Status"></span>
       </div>
     </header>
@@ -74,7 +73,6 @@
               <option value="rooms">📁 Rooms Matrix</option>
               <option value="active">👥 Connected Nodes</option>
             </select>
-            <button id="mobileGroupNotesBtn" class="sci-select notes-btn-mobile" title="Group Encrypted Notes">📝 Notes</button>
           </div>
         </div>
 
@@ -88,7 +86,10 @@
         <div class="hud-floating-actions-right">
           <button id="liveVideoBtn" class="sci-video-icon-btn" title="Toggle Silent Live Video Feed (Opponent Cam)">📹</button>
           <button id="instantLockBtn" class="sci-instant-lock-btn" title="Lock Screen & Remote Lock Nodes">🔒</button>
-          <button id="dockNotesBtn" class="sci-notes-icon-btn" title="Group Encrypted Notes">📝</button>
+          <button id="dockNotesBtn" class="sci-notes-icon-btn" title="Group Encrypted Notes">
+            📝
+            <span id="dockNotesBadge" class="dock-notes-badge hidden">0</span>
+          </button>
           <button id="purgeMessagesBtn" class="sci-purge-icon-btn" title="Destroy all room messages immediately">🗑️</button>
         </div>
 

@@ -499,6 +499,7 @@ chatNamespace.on('connection', (socket) => {
     chatNamespace.to(targetRoomName).emit('room-notes-updated', {
       room: targetRoomName,
       notes: room.notes,
+      notesCount: room.notes.length,
       addedBy: user?.username || 'Anonymous'
     });
 
@@ -529,6 +530,7 @@ chatNamespace.on('connection', (socket) => {
     chatNamespace.to(targetRoomName).emit('room-notes-updated', {
       room: targetRoomName,
       notes: room.notes,
+      notesCount: room.notes.length,
       deletedBy: user?.username || 'Anonymous'
     });
 
@@ -633,7 +635,8 @@ chatNamespace.on('connection', (socket) => {
         reactions: buildReactionPayload(message.reactions)
       })),
       isPrivate: Boolean(roomToJoin.password),
-      messageTTL: roomToJoin.messageTTL
+      messageTTL: roomToJoin.messageTTL,
+      notesCount: (roomToJoin.notes || []).length
     });
 
     socket.to(targetRoom).emit('system-message', {

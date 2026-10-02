@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Terminal - root@sys-core:~#</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: #0c0d10;
+      color: #33ff33;
+      font-family: 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'Liberation Mono', 'Courier New', monospace;
+      font-size: 14px;
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+      cursor: text;
+    }
+
+    .terminal-window {
+      width: 100%;
+      min-height: 100vh;
+      padding: 18px 22px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .terminal-header {
+      color: #888;
+      margin-bottom: 14px;
+      user-select: none;
+    }
+
+    .banner {
+      color: #cfcfcf;
+      white-space: pre-wrap;
+      margin-bottom: 16px;
+      line-height: 1.45;
+    }
+
+    .banner .highlight {
+      color: #00ffff;
+    }
+
+    .banner .dim {
+      color: #777;
+    }
+
+    .output-log {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .line {
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .command-line {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 4px;
+    }
+
+    .prompt {
+      color: #00ffff;
+      font-weight: bold;
+      user-select: none;
+      margin-right: 8px;
+    }
+
+    .prompt-user {
+      color: #ff3366;
+    }
+
+    .prompt-path {
+      color: #3399ff;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      flex: 1;
+      min-width: 140px;
+    }
+
+    .terminal-input {
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #ffffff;
+      font-family: inherit;
+      font-size: inherit;
+      width: 100%;
+      caret-color: #00ffff;
+      padding: 0;
+      margin: 0;
+    }
+
+    /* File listing colors */
+    .file-dir {
+      color: #3399ff;
+      font-weight: bold;
+    }
+
+    .file-exec {
+      color: #33ff33;
+      font-weight: bold;
+    }
+
+    .file-regular {
+      color: #cccccc;
+    }
+
+    .file-archive {
+      color: #ff3366;
+    }
+
+    .file-config {
+      color: #ffcc00;
+    }
+
+    .text-dim {
+      color: #888888;
+    }
+
+    .text-error {
+      color: #ff3366;
+    }
+
+    .text-success {
+      color: #33ff33;
+    }
+
+    .text-info {
+      color: #00ffff;
+    }
+
+    @media (max-width: 600px) {
+      body {
+        font-size: 12px;
+      }
+      .terminal-window {
+        padding: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="terminal-window" id="terminalWindow">
+    <div class="terminal-header">
+      [Terminal Session: /dev/pts/2 - 80x24 - Connected via SSH]
+    </div>
+
+    <div class="banner">
+Linux core-srv-04 5.15.0-101-generic #111-Ubuntu SMP x86_64
+
+The programs included with the Debian/Ubuntu system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Ubuntu comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+
+<span class="highlight">System Load:</span> 0.14, 0.08, 0.02 | <span class="highlight">Memory Usage:</span> 18.4% of 16GB
+<span class="dim">Last login: Fri Oct  2 03:22:14 2026 from 192.168.1.104</span>
+    </div>
+
+    <div class="output-log" id="outputLog"></div>
+
+    <div class="command-line" id="activeCommandLine">
+      <span class="prompt"><span class="prompt-user">root@core-srv-04</span>:<span class="prompt-path">~</span>#</span>
+      <div class="input-wrapper">
+        <input type="text" id="terminalInput" class="terminal-input" autofocus autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const outputLog = document.getElementById('outputLog');
+    const terminalInput = document.getElementById('terminalInput');
+    const terminalWindow = document.getElementById('terminalWindow');
+
+    let currentDir = '~';
+    const history = [];
+    let historyIdx = -1;
+
+    // Simulated filesystem
+    const fs = {
+      '~': {
+        files: [
+          { name: 'backup', type: 'dir', perms: 'drwxr-xr-x', owner: 'root', group: 'root', size: '4096', date: 'Oct  1 14:10' },
+          { name: 'logs', type: 'dir', perms: 'drwxr-xr-x', owner: 'root', group: 'root', size: '4096', date: 'Oct  2 02:45' },
+          { name: 'scripts', type: 'dir', perms: 'drwxr-xr-x', owner: 'root', group: 'root', size: '4096', date: 'Sep 30 19:00' },
+          { name: '.ssh', type: 'dir', perms: 'drwx------', owner: 'root', group: 'root', size: '4096', date: 'Sep 29 08:30', hidden: true },
+          { name: '.bashrc', type: 'regular', perms: '-rw-r--r--', owner: 'root', group: 'root', size: '3106', date: 'Sep 28 12:00', hidden: true },
+          { name: '.profile', type: 'regular', perms: '-rw-r--r--', owner: 'root', group: 'root', size: '161', date: 'Sep 28 12:00', hidden: true },
+          { name: '.bash_history', type: 'regular', perms: '-rw-------', owner: 'root', group: 'root', size: '982', date: 'Oct  1 22:40', hidden: true },
+          { name: 'config.yaml', type: 'config', perms: '-rw-r--r--', owner: 'root', group: 'root', size: '1248', date: 'Oct  2 01:20' },
+          { name: 'system.log', type: 'regular', perms: '-rw-r--r--', owner: 'root', group: 'root', size: '8492', date: 'Oct  2 03:15' },
+          { name: 'sysinfo.sh', type: 'exec', perms: '-rwxr-xr-x', owner: 'root', group: 'root', size: '532', date: 'Oct  1 11:05' }
+        ]
+      }
+    };
+
+    function appendLine(content, className = '') {
+      const div = document.createElement('div');
+      div.className = `line ${className}`;
+      div.innerHTML = content;
+      outputLog.appendChild(div);
+      window.scrollTo(0, document.body.scrollHeight);
+    }
+
+    function formatFile(item) {
+      if (item.type === 'dir') return `<span class="file-dir">${item.name}/</span>`;
+      if (item.type === 'exec') return `<span class="file-exec">${item.name}*</span>`;
+      if (item.type === 'config') return `<span class="file-config">${item.name}</span>`;
+      return `<span class="file-regular">${item.name}</span>`;
+    }
+
+    function runCommand(raw) {
+      const trimmed = raw.trim();
+      if (!trimmed) return;
+
+      history.push(trimmed);
+      historyIdx = history.length;
+
+      // Echo command line
+      appendLine(`<span class="prompt"><span class="prompt-user">root@core-srv-04</span>:<span class="prompt-path">${currentDir}</span>#</span> <span style="color:#ffffff;">${escapeHtml(raw)}</span>`);
+
+      const parts = trimmed.split(/\s+/);
+      const cmd = parts[0].toLowerCase();
+      const args = parts.slice(1);
+
+      switch (cmd) {
+        case 'ls': {
+          const showAll = args.includes('-a') || args.includes('-la') || args.includes('-al');
+          const isLong = args.includes('-l') || args.includes('-la') || args.includes('-al') || args.includes('-lh');
+          const items = fs['~'].files.filter(f => showAll || !f.hidden);
+
+          if (isLong) {
+            let output = '<span class="text-dim">total 44</span>\n';
+            if (showAll) {
+              output += `<span class="text-dim">drwx------ 5 root root 4096 Oct  2 03:15 </span><span class="file-dir">.</span>\n`;
+              output += `<span class="text-dim">drwxr-xr-x 3 root root 4096 Sep 28 12:00 </span><span class="file-dir">..</span>\n`;
+            }
+            items.forEach(f => {
+              output += `<span class="text-dim">${f.perms} 1 ${f.owner} ${f.group} ${f.size.padStart(5, ' ')} ${f.date} </span>${formatFile(f)}\n`;
+            });
+            appendLine(output.trimEnd());
+          } else {
+            const formatted = items.map(f => formatFile(f)).join('   ');
+            appendLine(formatted);
+          }
+          break;
+        }
+
+        case 'pwd':
+          appendLine('/root');
+          break;
+
+        case 'whoami':
+          appendLine('root');
+          break;
+
+        case 'id':
+          appendLine('uid=0(root) gid=0(root) groups=0(root)');
+          break;
+
+        case 'uname':
+          if (args.includes('-a')) {
+            appendLine('Linux core-srv-04 5.15.0-101-generic #111-Ubuntu SMP x86_64 x86_64 x86_64 GNU/Linux');
+          } else {
+            appendLine('Linux');
+          }
+          break;
+
+        case 'cat': {
+          const target = args[0];
+          if (!target) {
+            appendLine('cat: missing operand', 'text-error');
+          } else if (target === 'config.yaml') {
+            appendLine(`<span class="file-config">system:
+  node_id: core-04
+  cluster: nebula-internal
+  status: degraded
+  purge_trigger: auto_engaged
+  security_level: hardened</span>`);
+          } else if (target === 'system.log') {
+            appendLine(`<span class="text-dim">[03:22:10] Session initialized
+[03:24:02] Security threshold reached: invalid credentials (2x)
+[03:24:03] Cryptographic wipe confirmed (silent purge 0x00)
+[03:24:04] Fallback shell established</span>`);
+          } else if (target === 'sysinfo.sh') {
+            appendLine(`<span class="file-exec">#!/bin/bash
+echo "CPU: $(lscpu | grep 'Model name' | cut -d: -f2 | xargs)"
+echo "MEM: $(free -h | awk '/Mem:/ {print $3 "/" $2}')"
+uptime</span>`);
+          } else if (target === '.bashrc' || target === '.profile') {
+            appendLine('# ~/.bashrc: executed by bash(1) for non-login shells.\nexport PATH=$PATH:/usr/local/bin:/usr/bin');
+          } else {
+            appendLine(`cat: ${escapeHtml(target)}: No such file or directory`, 'text-error');
+          }
+          break;
+        }
+
+        case 'clear':
+          outputLog.innerHTML = '';
+          break;
+
+        case 'date':
+          appendLine(new Date().toUTCString());
+          break;
+
+        case 'uptime':
+          appendLine(' 03:25:12 up 14 days,  6:41,  1 user,  load average: 0.14, 0.08, 0.02');
+          break;
+
+        case 'help':
+          appendLine(`<span class="text-info">Supported commands:</span>
+  ls [-a] [-l]     List directory contents
+  pwd              Print working directory
+  cat &lt;file&gt;        Concatenate and display files
+  whoami           Print effective userid
+  uname [-a]       Print system information
+  uptime           Show how long system has been running
+  date             Display system date and time
+  echo &lt;text&gt;      Display text
+  clear            Clear terminal screen
+  exit / logout    Close terminal session`);
+          break;
+
+        case 'echo':
+          appendLine(escapeHtml(args.join(' ')));
+          break;
+
+        case 'exit':
+        case 'logout':
+          appendLine('<span class="text-dim">logout\nConnection to core-srv-04 closed.</span>');
+          terminalInput.disabled = true;
+          break;
+
+        default:
+          appendLine(`bash: ${escapeHtml(cmd)}: command not found`, 'text-error');
+          break;
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    terminalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const val = terminalInput.value;
+        terminalInput.value = '';
+        runCommand(val);
+      } else if (e.key === 'ArrowUp') {
+        if (history.length && historyIdx > 0) {
+          historyIdx--;
+          terminalInput.value = history[historyIdx] || '';
+          e.preventDefault();
+        }
+      } else if (e.key === 'ArrowDown') {
+        if (historyIdx < history.length - 1) {
+          historyIdx++;
+          terminalInput.value = history[historyIdx] || '';
+        } else {
+          historyIdx = history.length;
+          terminalInput.value = '';
+        }
+        e.preventDefault();
+      }
+    });
+
+    // Refocus on terminal input on any click
+    document.addEventListener('click', () => {
+      terminalInput.focus();
+    });
+
+    // Initial prompt focus
+    terminalInput.focus();
+  </script>
+</body>
+</html>

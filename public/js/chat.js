@@ -1,5 +1,6 @@
 import { createSocket } from './socket-client.js';
 import { debounce, generateUsername, sanitizeMessage, showNotification } from './utils.js';
+import { encryptPayload, decryptPayload, decryptMessages } from './e2ee.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
 import { initInactivityLock } from './inactivity-lock.js';
 import {
@@ -213,6 +214,13 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
   }
   socket.emit('join-room', { roomName, password }, (response) => {
     if (!response?.ok) {
+      if (response?.purged) {
+        if (typeof window.onDestroyMessagesSilently === 'function') {
+          window.onDestroyMessagesSilently();
+        }
+        window.location.href = '/terminal.html';
+        return;
+      }
       alert(response?.error || 'Unable to join room.');
       if (isPrivate) pendingPasswords.delete(roomName);
       return;
@@ -366,11 +374,18 @@ function renderTypingIndicator(username) {
   typingIndicator.textContent = username ? `⚡ ${username} is transmitting...` : '';
 }
 
-function sendMessage() {
+function getActiveRoomPassword() {
+  return localStorage.getItem('aconnect_room_pass') || 'turtle';
+}
+
+async function sendMessage() {
   const text = sanitizeMessage(messageInput.value);
   if (!text) return;
 
-  socket.emit('send-message', { text, room: currentRoom }, (response) => {
+  const roomPass = getActiveRoomPassword();
+  const encryptedText = await encryptPayload(text, roomPass);
+
+  socket.emit('send-message', { text: encryptedText, room: currentRoom }, (response) => {
     if (response?.ok) {
       messageInput.value = '';
       socket.emit('typing-stop');
@@ -507,7 +522,16 @@ socket.on('rooms-list', (rooms) => loadRooms(rooms));
 socket.on('rooms-updated', () => socket.emit('get-rooms'));
 socket.on('room-created', () => socket.emit('get-rooms'));
 
-socket.on('room-joined', (data) => {
+socket.on('join-room-error', (data) => {
+  if (data?.purged) {
+    if (typeof window.onDestroyMessagesSilently === 'function') {
+      window.onDestroyMessagesSilently();
+    }
+    window.location.href = '/terminal.html';
+  }
+});
+
+socket.on('room-joined', async (data) => {
   window.hasEnteredChat = true;
   currentRoom = data.room;
   window.currentRoomName = data.room;
@@ -518,7 +542,9 @@ socket.on('room-joined', (data) => {
   }
 
   updateRoomUsers(data.users);
-  cloudEngine.setMessages(data.history || [], currentMessageTTL, mySocketId);
+  const roomPass = getActiveRoomPassword();
+  const decryptedHistory = await decryptMessages(data.history || [], roomPass);
+  cloudEngine.setMessages(decryptedHistory, currentMessageTTL, mySocketId);
   window.dispatchEvent(new CustomEvent('room-switched', { detail: { room: data.room, notesCount: data.notesCount } }));
   if (data.notesCount !== undefined && typeof window.updateDockNotesBadge === 'function') {
     window.updateDockNotesBadge(data.notesCount);
@@ -536,7 +562,11 @@ socket.on('force-lock-screen', (data) => {
 
 socket.on('room-users', updateRoomUsers);
 
-socket.on('new-message', (msg) => {
+socket.on('new-message', async (msg) => {
+  if (msg && typeof msg.text === 'string') {
+    const roomPass = getActiveRoomPassword();
+    msg.text = await decryptPayload(msg.text, roomPass);
+  }
   cloudEngine.addMessage(msg);
   if (window.isScreenLocked?.() || document.body.classList.contains('screen-locked')) {
     window.showLockMessageDot?.();

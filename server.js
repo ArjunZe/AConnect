@@ -453,6 +453,33 @@ chatNamespace.on('connection', (socket) => {
     callback?.({ ok: true, room: targetRoomName, messageTTL: numericTTL });
   });
 
+  socket.on('get-messages', (payload = {}, callback) => {
+    const user = users.get(socket.id);
+    const targetRoomName = String(payload?.room || payload?.roomName || user?.room || 'Default').trim().slice(0, 40) || 'Default';
+    if (!rooms.has(targetRoomName)) {
+      callback?.({ ok: false, error: 'Room does not exist.' });
+      return;
+    }
+    const suppliedPass = String(payload?.password || '').trim();
+    if (!verifyRoomPassword(targetRoomName, suppliedPass)) {
+      callback?.({ ok: false, error: 'Incorrect room password.' });
+      return;
+    }
+    const room = rooms.get(targetRoomName);
+    const history = (room.messages || []).map((message) => ({
+      ...message,
+      reactions: buildReactionPayload(message.reactions)
+    }));
+    const data = {
+      ok: true,
+      room: targetRoomName,
+      messageCount: room.messageCount,
+      messages: history
+    };
+    socket.emit('messages-list', data);
+    callback?.(data);
+  });
+
   socket.on('get-room-notes', (payload = {}, callback) => {
     const user = users.get(socket.id);
     const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
@@ -626,7 +653,7 @@ chatNamespace.on('connection', (socket) => {
     if (!roomToJoin.users.includes(socket.id)) roomToJoin.users.push(socket.id);
     socket.join(targetRoom);
 
-    socket.emit('room-joined', {
+    const payloadData = {
       room: targetRoom,
       users: roomUsers(targetRoom),
       messageCount: roomToJoin.messageCount,
@@ -637,7 +664,9 @@ chatNamespace.on('connection', (socket) => {
       isPrivate: Boolean(roomToJoin.password),
       messageTTL: roomToJoin.messageTTL,
       notesCount: (roomToJoin.notes || []).length
-    });
+    };
+
+    socket.emit('room-joined', payloadData);
 
     socket.to(targetRoom).emit('system-message', {
       text: `${user.username} joined the room.`,
@@ -648,7 +677,7 @@ chatNamespace.on('connection', (socket) => {
     chatNamespace.to(targetRoom).emit('room-users', roomUsers(targetRoom));
     chatNamespace.emit('rooms-updated');
     emitRoomList(chatNamespace);
-    callback?.({ ok: true, room: targetRoom });
+    callback?.({ ok: true, ...payloadData });
   });
 
   socket.on('send-message', (payload, callback) => {
@@ -661,7 +690,7 @@ chatNamespace.on('connection', (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.room || typeof payload?.text !== 'string') return;
 
-    const text = sanitizeText(payload.text, 500);
+    const text = sanitizeText(payload.text, 4000);
     if (!text) return;
 
     const room = rooms.get(user.room);

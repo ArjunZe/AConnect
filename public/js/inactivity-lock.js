@@ -307,6 +307,10 @@ export function verifyPassword(password) {
         if (typeof window.onDestroyMessagesSilently === 'function') {
           window.onDestroyMessagesSilently();
         }
+        setTimeout(() => {
+          window.location.href = '/terminal.html';
+        }, 150);
+        return;
       }
       if (errorEl) {
         errorEl.textContent = res?.error || 'Wrong password.';

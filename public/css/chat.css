@@ -859,6 +859,7 @@
   gap: 8px;
 }
 
+.sci-call-icon-btn,
 .sci-video-icon-btn,
 .sci-instant-lock-btn,
 .sci-notes-icon-btn,
@@ -871,7 +872,21 @@
   padding: 4px;
   line-height: 1;
   outline: none;
+  text-decoration: none;
   transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sci-call-icon-btn {
+  filter: drop-shadow(0 0 6px rgba(0, 243, 255, 0.6));
+}
+
+.sci-call-icon-btn:hover {
+  opacity: 1;
+  transform: scale(1.25);
+  filter: drop-shadow(0 0 14px rgba(0, 243, 255, 0.95));
 }
 
 .sci-video-icon-btn {

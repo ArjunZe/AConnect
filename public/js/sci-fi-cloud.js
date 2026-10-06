@@ -1,12 +1,11 @@
 /**
  * Sci-Fi Quantum Holographic Message Cloud Engine for AnonConnect
- * Features:
- * - Cohesive holographic message nodes with user color coding & legibility
- * - "LATEST TRANSMISSION" spotlight & neon pulse ring for the newest message
- * - Dramatic dynamic scale curve (250% -> 160% -> 100%) + reaction sizing bonus
- * - Live relative timestamps ("Just now", "30s ago", "2m ago")
- * - 3 View Modes: Quantum Orbit, Chrono Flow, Heatmap
- * - Physics lerp positioning & mouse hover/click inspect interactions
+ * Optimizations:
+ * - High-efficiency thermal architecture: 0% idle CPU/GPU (smart dirty-flag rendering loop)
+ * - Removed heavy software canvas shadowBlur rasterization
+ * - Static background canvas drawing (zero continuous 120 FPS clearing/particles loop)
+ * - Chrono Flow touch & wheel scrolling with momentum & culling
+ * - Capped Device Pixel Ratio (DPR <= 1.75) for modern high-refresh OLED devices
  */
 
 const NEON_PALETTES = [
@@ -59,12 +58,19 @@ export class SciFiCloudEngine {
     this.closeInspectBtn = document.getElementById('closeInspectBtn');
 
     this.messages = [];
-    this.nodeStates = new Map(); // id -> { x, y, targetX, targetY, scale, alpha, pulse, width, height }
+    this.nodeStates = new Map(); // id -> { x, y, targetX, targetY, scale, alpha, pulse, width, height, baseX, baseY }
     this.viewMode = 'orbit'; // 'orbit', 'chrono', 'heatmap'
     this.messageTTL = 0;
     this.mySocketId = '';
     this.hoveredNodeId = null;
     this.animationFrameId = null;
+
+    // Scrolling & Thermal Animation State
+    this.chronoScrollY = 0;
+    this.maxScrollY = 0;
+    this.isScrolling = false;
+    this.isAnimating = false;
+    this.touchMoved = false;
 
     this.initBgCanvas();
     this.initCloudCanvas();
@@ -75,19 +81,45 @@ export class SciFiCloudEngine {
   initBgCanvas() {
     if (!this.bgCanvas) return;
     this.bgCtx = this.bgCanvas.getContext('2d');
-    this.particles = [];
-    for (let i = 0; i < 45; i++) {
-      this.particles.push({
-        x: Math.random() * window.innerWidth,
-        y: Math.random() * window.innerHeight,
-        vx: (Math.random() - 0.5) * 0.3,
-        vy: (Math.random() - 0.5) * 0.3,
-        radius: Math.random() * 2 + 1,
-        color: NEON_PALETTES[Math.floor(Math.random() * NEON_PALETTES.length)].main,
-        alpha: Math.random() * 0.5 + 0.2
-      });
-    }
     this.resizeCanvases();
+  }
+
+  drawStaticBackground() {
+    if (!this.bgCtx || !this.bgCanvas) return;
+    const ctx = this.bgCtx;
+    const w = this.canvasWidth || window.innerWidth;
+    const h = this.canvasHeight || window.innerHeight;
+
+    ctx.clearRect(0, 0, w, h);
+
+    // Subtle static cybernetic grid lines
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.025)';
+    ctx.lineWidth = 1;
+    const gridSize = 64;
+    for (let x = 0; x < w; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, h);
+      ctx.stroke();
+    }
+    for (let y = 0; y < h; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(w, y);
+      ctx.stroke();
+    }
+
+    // Static ambient stars (drawn once, no 120 FPS continuous computation)
+    const starColors = ['rgba(0, 243, 255, 0.4)', 'rgba(255, 0, 127, 0.3)', 'rgba(0, 255, 157, 0.35)'];
+    for (let i = 0; i < 35; i++) {
+      const sx = (((i * 137.5) % 1000) / 1000) * w;
+      const sy = (((i * 269.3) % 1000) / 1000) * h;
+      const color = starColors[i % starColors.length];
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(sx, sy, i % 3 === 0 ? 1.8 : 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   initCloudCanvas() {
@@ -95,34 +127,131 @@ export class SciFiCloudEngine {
     this.ctx = this.canvas.getContext('2d');
 
     this.resizeCanvases();
-    window.addEventListener('resize', () => this.resizeCanvases());
+    window.addEventListener('resize', () => {
+      this.resizeCanvases();
+      this.recalculateTargets();
+      this.requestRender();
+    });
 
     // Mouse hover & click events
-    this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    this.canvas.addEventListener('mousemove', (e) => {
+      this.handleMouseMove(e);
+      this.requestRender();
+    });
     this.canvas.addEventListener('mouseleave', () => {
       this.hoveredNodeId = null;
       this.canvas.style.cursor = 'default';
+      this.requestRender();
     });
-    this.canvas.addEventListener('click', (e) => this.handleClick(e));
+    this.canvas.addEventListener('click', (e) => {
+      if (!this.touchMoved) {
+        this.handleClick(e);
+      }
+    });
 
-    // Start cloud animation loop
-    this.animateCloud();
+    // Wheel event for Chrono Flow scrolling
+    this.canvas.addEventListener('wheel', (e) => {
+      if (this.viewMode === 'chrono' && this.maxScrollY > 0) {
+        e.preventDefault();
+        this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, this.chronoScrollY + e.deltaY));
+        this.updateScrollTargets();
+        this.requestRender();
+      }
+    }, { passive: false });
+
+    // Touch events for mobile scrolling on Chrono Flow
+    let touchStartY = 0;
+    let initialScrollY = 0;
+    let lastTouchY = 0;
+    let touchVelocity = 0;
+    let lastTouchTime = 0;
+
+    this.canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        this.touchMoved = false;
+        touchStartY = e.touches[0].clientY;
+        lastTouchY = touchStartY;
+        initialScrollY = this.chronoScrollY;
+        lastTouchTime = Date.now();
+        touchVelocity = 0;
+        this.isScrolling = true;
+      }
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchmove', (e) => {
+      if (this.viewMode !== 'chrono' || e.touches.length !== 1) return;
+      const currentY = e.touches[0].clientY;
+      const deltaY = touchStartY - currentY;
+
+      if (Math.abs(deltaY) > 6) {
+        this.touchMoved = true;
+      }
+
+      const now = Date.now();
+      const dt = Math.max(1, now - lastTouchTime);
+      touchVelocity = (lastTouchY - currentY) / dt;
+      lastTouchY = currentY;
+      lastTouchTime = now;
+
+      this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, initialScrollY + deltaY));
+      this.updateScrollTargets();
+      this.requestRender();
+    }, { passive: true });
+
+    this.canvas.addEventListener('touchend', () => {
+      this.isScrolling = false;
+      if (this.viewMode === 'chrono' && Math.abs(touchVelocity) > 0.25) {
+        this.applyMomentum(touchVelocity);
+      } else {
+        this.requestRender();
+      }
+    }, { passive: true });
+
+    // Initial render
+    this.requestRender();
+  }
+
+  applyMomentum(velocity) {
+    let vel = velocity * 14;
+    const step = () => {
+      if (Math.abs(vel) < 0.4 || this.isScrolling) {
+        this.requestRender();
+        return;
+      }
+      this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, this.chronoScrollY + vel));
+      vel *= 0.91;
+      this.updateScrollTargets();
+      this.requestRender();
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   resizeCanvases() {
-    const dpr = window.devicePixelRatio || 1;
+    // Cap DPR to 1.75 max to eliminate massive fill-rate burn on S24 Ultra & 120Hz displays
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.75);
+    const rect = this.canvas && this.canvas.parentElement
+      ? this.canvas.parentElement.getBoundingClientRect()
+      : { width: window.innerWidth, height: window.innerHeight };
+
+    this.canvasWidth = rect.width;
+    this.canvasHeight = rect.height;
+
     if (this.bgCanvas) {
       this.bgCanvas.width = window.innerWidth * dpr;
       this.bgCanvas.height = window.innerHeight * dpr;
-      if (this.bgCtx) this.bgCtx.scale(dpr, dpr);
+      if (this.bgCtx) {
+        this.bgCtx.scale(dpr, dpr);
+        this.drawStaticBackground();
+      }
     }
+
     if (this.canvas) {
-      const rect = this.canvas.parentElement ? this.canvas.parentElement.getBoundingClientRect() : { width: window.innerWidth, height: window.innerHeight };
-      this.canvasWidth = rect.width;
-      this.canvasHeight = rect.height;
       this.canvas.width = rect.width * dpr;
       this.canvas.height = rect.height * dpr;
-      if (this.ctx) this.ctx.scale(dpr, dpr);
+      if (this.ctx) {
+        this.ctx.scale(dpr, dpr);
+      }
     }
   }
 
@@ -147,14 +276,21 @@ export class SciFiCloudEngine {
   setViewMode(mode) {
     if (['orbit', 'chrono', 'heatmap'].includes(mode)) {
       this.viewMode = mode;
+      if (mode === 'chrono') {
+        this.chronoScrollY = 0;
+      }
       this.recalculateTargets();
+      this.requestRender();
     }
   }
 
   clear() {
     this.messages = [];
     this.nodeStates.clear();
+    this.chronoScrollY = 0;
+    this.maxScrollY = 0;
     if (this.emptyNotice) this.emptyNotice.style.display = 'flex';
+    this.requestRender();
   }
 
   setMessages(messagesList, messageTTL = 0, mySocketId = '') {
@@ -167,6 +303,7 @@ export class SciFiCloudEngine {
     
     this.messages.forEach(msg => this.initNodeState(msg));
     this.recalculateTargets();
+    this.requestRender();
   }
 
   addMessage(data) {
@@ -174,29 +311,27 @@ export class SciFiCloudEngine {
     if (this.messages.some((m) => m.id === data.id)) return;
     
     this.messages.push(data);
-    this.initNodeState(data, true); // brand new message triggers pulse effect!
+    this.initNodeState(data, true); // brand new message triggers pulse effect
     this.recalculateTargets();
+    this.requestRender();
   }
 
   removeMessage(messageId) {
     this.messages = this.messages.filter((m) => m.id !== messageId);
     this.nodeStates.delete(messageId);
-
-    if (this.inspectCard && this.inspectCard.dataset.messageId === messageId) {
-      this.inspectCard.classList.add('hidden');
-    }
-
     this.recalculateTargets();
+    this.requestRender();
   }
 
-  updateReactions(messageId, reactions) {
+  updateReactions(messageId, reactions = []) {
     const msg = this.messages.find((m) => m.id === messageId);
-    if (msg) {
-      msg.reactions = reactions;
-      // Trigger a visual pulse on node when reaction is updated
-      const state = this.nodeStates.get(messageId);
-      if (state) state.pulse = 1.0;
-    }
+    if (!msg) return;
+
+    msg.reactions = reactions;
+    const state = this.nodeStates.get(messageId);
+    if (state) state.pulse = 1.0;
+    this.recalculateTargets();
+    this.requestRender();
 
     if (this.inspectCard && this.inspectCard.dataset.messageId === messageId) {
       this.renderInspectReactions(reactions);
@@ -208,13 +343,15 @@ export class SciFiCloudEngine {
     const centerY = (this.canvasHeight || window.innerHeight) / 2;
 
     this.nodeStates.set(msg.id, {
-      x: centerX + (Math.random() - 0.5) * 80,
-      y: centerY + (Math.random() - 0.5) * 80,
+      x: centerX + (Math.random() - 0.5) * 60,
+      y: centerY + (Math.random() - 0.5) * 60,
       targetX: centerX,
       targetY: centerY,
-      scale: isNew ? 2.5 : 1.0,
+      baseX: centerX,
+      baseY: centerY,
+      scale: isNew ? 2.2 : 1.0,
       alpha: 1.0,
-      pulse: isNew ? 1.5 : 0,
+      pulse: isNew ? 1.0 : 0,
       width: 160,
       height: 60
     });
@@ -235,7 +372,6 @@ export class SciFiCloudEngine {
 
     // Latest message index is total - 1
     const latestId = this.messages[total - 1]?.id;
-
     const isMobile = w < 650;
 
     if (this.viewMode === 'orbit') {
@@ -264,10 +400,16 @@ export class SciFiCloudEngine {
         }
       });
     } else if (this.viewMode === 'chrono') {
-      // Chrono Flow: 2 columns on mobile and desktop
+      // Chrono Flow: 2 columns on mobile and desktop with scrollable layout
       const rowHeight = isMobile ? 65 : 75;
       const startY = isMobile ? 65 : 80;
       const colOffset = isMobile ? Math.min(95, w * 0.24) : Math.min(220, w * 0.25);
+
+      // Compute total content height & bounds for scrolling
+      const totalRows = Math.ceil(Math.max(1, total) / 2);
+      const contentBottom = startY + (isMobile ? 55 : 50) + totalRows * rowHeight + 90;
+      this.maxScrollY = Math.max(0, contentBottom - h + 80);
+      this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, this.chronoScrollY));
 
       this.messages.forEach((msg, idx) => {
         const state = this.nodeStates.get(msg.id);
@@ -276,15 +418,18 @@ export class SciFiCloudEngine {
         const indexFromLatest = total - 1 - idx; // 0 = newest at top
 
         if (indexFromLatest === 0) {
-          state.targetX = centerX;
-          state.targetY = startY;
+          state.baseX = centerX;
+          state.baseY = startY;
         } else {
           const col = indexFromLatest % 2;
           const row = Math.floor(indexFromLatest / 2);
           const offsetX = (col === 0 ? -1 : 1) * colOffset;
-          state.targetX = centerX + offsetX;
-          state.targetY = startY + (isMobile ? 55 : 50) + row * rowHeight;
+          state.baseX = centerX + offsetX;
+          state.baseY = startY + (isMobile ? 55 : 50) + row * rowHeight;
         }
+
+        state.targetX = state.baseX;
+        state.targetY = state.baseY - this.chronoScrollY;
       });
     } else if (this.viewMode === 'heatmap') {
       // Heatmap Mode: Sorted by reaction count + recency score
@@ -307,6 +452,16 @@ export class SciFiCloudEngine {
     }
   }
 
+  updateScrollTargets() {
+    if (this.viewMode !== 'chrono') return;
+    this.messages.forEach((msg) => {
+      const state = this.nodeStates.get(msg.id);
+      if (state && state.baseY !== undefined) {
+        state.targetY = state.baseY - this.chronoScrollY;
+      }
+    });
+  }
+
   handleMouseMove(e) {
     if (!this.canvas) return;
     const rect = this.canvas.getBoundingClientRect();
@@ -314,8 +469,6 @@ export class SciFiCloudEngine {
     const my = e.clientY - rect.top;
 
     let foundHover = null;
-
-    // Check hit test from front to back
     for (let i = this.messages.length - 1; i >= 0; i--) {
       const msg = this.messages[i];
       const state = this.nodeStates.get(msg.id);
@@ -330,13 +483,36 @@ export class SciFiCloudEngine {
       }
     }
 
-    this.hoveredNodeId = foundHover;
-    this.canvas.style.cursor = foundHover ? 'pointer' : 'default';
+    if (this.hoveredNodeId !== foundHover) {
+      this.hoveredNodeId = foundHover;
+      this.canvas.style.cursor = foundHover ? 'pointer' : 'default';
+      this.requestRender();
+    }
   }
 
   handleClick(e) {
-    if (this.hoveredNodeId) {
-      const msg = this.messages.find((m) => m.id === this.hoveredNodeId);
+    if (this.touchMoved) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    let targetId = this.hoveredNodeId;
+    if (!targetId) {
+      for (let i = this.messages.length - 1; i >= 0; i--) {
+        const msg = this.messages[i];
+        const state = this.nodeStates.get(msg.id);
+        if (!state) continue;
+        const halfW = state.width / 2;
+        const halfH = state.height / 2;
+        if (mx >= state.x - halfW && mx <= state.x + halfW && my >= state.y - halfH && my <= state.y + halfH) {
+          targetId = msg.id;
+          break;
+        }
+      }
+    }
+
+    if (targetId) {
+      const msg = this.messages.find((m) => m.id === targetId);
       if (msg) this.showInspectCard(msg);
     }
   }
@@ -348,21 +524,20 @@ export class SciFiCloudEngine {
     const screenWidth = this.canvasWidth || window.innerWidth;
     const isMobile = screenWidth < 650;
     
-    // Dynamic Recency Curve (capped on mobile so nodes fit inside viewport)
+    // Dynamic Recency Curve
     let recencyScale = 1.0;
-    if (ageSeconds < 15) recencyScale = isMobile ? 1.3 : 2.2;
-    else if (ageSeconds < 45) recencyScale = isMobile ? 1.15 : 1.7;
-    else if (ageSeconds < 120) recencyScale = isMobile ? 1.05 : 1.35;
-    else if (ageSeconds < 300) recencyScale = isMobile ? 0.95 : 1.1;
+    if (ageSeconds < 15) recencyScale = isMobile ? 1.25 : 2.0;
+    else if (ageSeconds < 45) recencyScale = isMobile ? 1.1 : 1.5;
+    else if (ageSeconds < 120) recencyScale = isMobile ? 1.0 : 1.25;
+    else if (ageSeconds < 300) recencyScale = isMobile ? 0.95 : 1.05;
     else recencyScale = isMobile ? 0.85 : 0.9;
 
-    // Reaction bonus (+15% scale per reaction up to +45%)
     const reactionCount = (msg.reactions || []).reduce((sum, r) => sum + (r.count || 0), 0);
-    const reactionBonus = Math.min(0.45, reactionCount * 0.15);
+    const reactionBonus = Math.min(0.35, reactionCount * 0.12);
 
     const baseCalculated = recencyScale + reactionBonus;
     return isLatest 
-      ? Math.max(isMobile ? 1.25 : 1.9, baseCalculated) 
+      ? Math.max(isMobile ? 1.2 : 1.7, baseCalculated) 
       : Math.max(isMobile ? 0.8 : 0.85, baseCalculated);
   }
 
@@ -375,13 +550,7 @@ export class SciFiCloudEngine {
 
     ctx.clearRect(0, 0, w, h);
 
-    const time = Date.now() * 0.002;
     const latestId = this.messages[this.messages.length - 1]?.id;
-
-    // Update particles on background canvas if initialized
-    if (this.bgCtx && this.bgCanvas) {
-      this.animateBgFrame();
-    }
 
     // Render connecting orbit lines in Quantum Orbit mode
     if (this.viewMode === 'orbit' && this.messages.length > 1) {
@@ -391,7 +560,7 @@ export class SciFiCloudEngine {
         ctx.strokeStyle = 'rgba(0, 243, 255, 0.08)';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 6]);
-        this.messages.forEach(msg => {
+        this.messages.forEach((msg) => {
           if (msg.id === latestId) return;
           const s = this.nodeStates.get(msg.id);
           if (s) {
@@ -405,6 +574,8 @@ export class SciFiCloudEngine {
       }
     }
 
+    let hasMotion = false;
+
     // Render nodes
     this.messages.forEach((msg, idx) => {
       const state = this.nodeStates.get(msg.id);
@@ -415,88 +586,79 @@ export class SciFiCloudEngine {
       const palette = getUserColor(msg.username);
 
       // Lerp positioning
-      state.x += (state.targetX - state.x) * 0.08;
-      state.y += (state.targetY - state.y) * 0.08;
-
-      // Slight floating motion
-      const floatY = Math.sin(time + idx * 0.7) * (isLatest ? 3 : 2);
-      const renderY = state.y + floatY;
+      const dx = state.targetX - state.x;
+      const dy = state.targetY - state.y;
+      state.x += dx * 0.18;
+      state.y += dy * 0.18;
 
       // Target scale & Lerp scale
       const targetScale = this.calculateScale(msg, isLatest) * (isHovered ? 1.15 : 1.0);
-      state.scale += (targetScale - state.scale) * 0.1;
+      const ds = targetScale - state.scale;
+      state.scale += ds * 0.18;
 
       // Decay pulse
-      if (state.pulse > 0) state.pulse *= 0.92;
+      if (state.pulse > 0) state.pulse *= 0.88;
 
-      // Render Holographic Node Box
-      this.renderNode(ctx, msg, state.x, renderY, state.scale, palette, isLatest, isHovered, idx, state);
+      // Motion threshold check
+      if (Math.abs(dx) > 0.25 || Math.abs(dy) > 0.25 || Math.abs(ds) > 0.015 || state.pulse > 0.02) {
+        hasMotion = true;
+      }
+
+      // Viewport culling in Chrono mode (skip off-screen nodes for instant speed)
+      if (this.viewMode === 'chrono') {
+        const halfH = (state.height || 60) / 2;
+        if (state.y + halfH < -40 || state.y - halfH > h + 40) {
+          return;
+        }
+      }
+
+      // Render Holographic Node Box (pure hardware-accelerated geometry, zero shadowBlur)
+      this.renderNode(ctx, msg, state.x, state.y, state.scale, palette, isLatest, isHovered, idx, state);
     });
 
-    this.animationFrameId = requestAnimationFrame(() => this.animateCloud());
-  }
-
-  animateBgFrame() {
-    if (!this.bgCtx || !this.bgCanvas) return;
-    const ctx = this.bgCtx;
-    const dpr = window.devicePixelRatio || 1;
-    const w = this.bgCanvas.width / dpr;
-    const h = this.bgCanvas.height / dpr;
-
-    ctx.clearRect(0, 0, w, h);
-
-    // Grid lines
-    ctx.strokeStyle = 'rgba(0, 243, 255, 0.03)';
-    ctx.lineWidth = 1;
-    const gridSize = 60;
-    for (let x = 0; x < w; x += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, h);
-      ctx.stroke();
-    }
-    for (let y = 0; y < h; y += gridSize) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(w, y);
-      ctx.stroke();
-    }
-
-    // Floating particles
-    this.particles.forEach((p) => {
-      p.x += p.vx;
-      p.y += p.vy;
-
-      if (p.x < 0) p.x = w;
-      if (p.x > w) p.x = 0;
-      if (p.y < 0) p.y = h;
-      if (p.y > h) p.y = 0;
+    // Render scrollbar indicator in Chrono mode
+    if (this.viewMode === 'chrono' && this.maxScrollY > 10) {
+      const trackH = Math.max(50, h - 160);
+      const trackY = 80;
+      const thumbH = Math.max(24, Math.min(trackH, (h / (h + this.maxScrollY)) * trackH));
+      const scrollRatio = this.chronoScrollY / this.maxScrollY;
+      const thumbY = trackY + scrollRatio * (trackH - thumbH);
 
       ctx.save();
-      ctx.globalAlpha = p.alpha;
-      ctx.fillStyle = p.color;
-      ctx.shadowColor = p.color;
-      ctx.shadowBlur = 8;
+      ctx.fillStyle = 'rgba(0, 243, 255, 0.35)';
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+      ctx.roundRect(w - 6, thumbY, 3, thumbH, 2);
       ctx.fill();
       ctx.restore();
-    });
+    }
+
+    // Smart render loop: only continue if motion is pending or actively scrolling
+    if (hasMotion || this.isScrolling) {
+      this.animationFrameId = requestAnimationFrame(() => this.animateCloud());
+    } else {
+      this.isAnimating = false;
+    }
   }
 
-  renderNode(ctx, msg, x, y, scale, palette, isLatest, isHovered, index, state) {
+  requestRender() {
+    if (!this.isAnimating) {
+      this.isAnimating = true;
+      this.animationFrameId = requestAnimationFrame(() => this.animateCloud());
+    }
+  }
+
+  renderNode(ctx, msg, x, y, scale, palette, isLatest, isHovered, idx, state) {
     ctx.save();
 
+    const isMobile = (this.canvasWidth || window.innerWidth) < 650;
     const canvasW = this.canvasWidth || window.innerWidth;
-    const isMobile = canvasW < 650;
 
-    const baseFontSize = Math.floor((isMobile ? 12 : 13) * scale);
+    // Node Typography & Content
+    const baseFontSize = Math.max(11, Math.floor((isMobile ? 12 : 14) * scale));
     ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
 
-    const textStr = msg.text || (msg.type === 'image' ? '📷 Hologram Image' : '');
-    const maxTextLen = Math.floor((isMobile ? 20 : 28) * (scale > 1.8 ? 1.5 : 1));
-    const displayText = textStr.length > maxTextLen ? textStr.slice(0, maxTextLen) + '…' : textStr;
-
+    const rawText = msg.text || (msg.type === 'image' ? '📷 [Hologram Image]' : '');
+    const displayText = rawText.length > 40 ? rawText.slice(0, 38) + '…' : rawText;
     const relTime = formatRelativeTime(msg.timestamp);
     const authorStr = msg.username || 'Anon';
 
@@ -529,25 +691,22 @@ export class SciFiCloudEngine {
     const rectY = y - halfH;
     const radius = Math.min(12, Math.floor(8 * scale));
 
-    // Outer Neon Glow Pulse for Latest or Hovered node
-    if (isLatest || isHovered || state.pulse > 0.1) {
-      ctx.shadowColor = isLatest ? '#00f3ff' : palette.main;
-      ctx.shadowBlur = (isLatest ? 22 : 12) + (state.pulse * 15);
-    } else {
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.4)';
-      ctx.shadowBlur = 8;
-    }
-
     // Node Background (Glassmorphism dark sci-fi card)
     ctx.fillStyle = isLatest ? 'rgba(8, 20, 36, 0.94)' : 'rgba(12, 16, 26, 0.88)';
     ctx.beginPath();
     ctx.roundRect(rectX, rectY, nodeWidth, nodeHeight, radius);
     ctx.fill();
 
-    // Node Border
-    ctx.lineWidth = isLatest ? 2.5 : isHovered ? 2 : 1;
+    // Crisp Sci-Fi Card Stroke (Zero shadowBlur overhead)
+    ctx.lineWidth = isLatest ? 2 : isHovered ? 1.5 : 1;
     ctx.strokeStyle = isLatest ? '#00f3ff' : isHovered ? palette.main : 'rgba(0, 243, 255, 0.25)';
     ctx.stroke();
+
+    if (isLatest) {
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(0, 243, 255, 0.35)';
+      ctx.strokeRect(rectX - 2, rectY - 2, nodeWidth + 4, nodeHeight + 4);
+    }
 
     // Corner Sci-Fi Tech Accents
     ctx.fillStyle = palette.main;
@@ -557,7 +716,6 @@ export class SciFiCloudEngine {
     ctx.fillRect(rectX + nodeWidth - 4, rectY + nodeHeight - 4, 4, 4);
 
     // Header Row: Author + Recency Badge + Timestamp
-    ctx.shadowBlur = 0;
     const headerY = rectY + Math.floor(20 * (scale > 1.8 ? 1.15 : 1));
 
     // Author Name
@@ -567,7 +725,7 @@ export class SciFiCloudEngine {
 
     const authorWidth = ctx.measureText(authorStr.toUpperCase()).width;
 
-    // Recency Badge Tag (e.g. ⚡ LATEST or #1)
+    // Recency Badge Tag (e.g. ⚡ LATEST)
     if (isLatest) {
       const badgeX = rectX + paddingX + authorWidth + 8;
       ctx.fillStyle = '#00f3ff';
@@ -589,7 +747,7 @@ export class SciFiCloudEngine {
     ctx.lineTo(rectX + nodeWidth - paddingX, dividerY);
     ctx.stroke();
 
-    // Body Message Text with generous vertical gap below header line
+    // Body Message Text
     const bodyY = dividerY + Math.floor(21 * (scale > 1.8 ? 1.15 : 1));
     ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
     ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
@@ -650,11 +808,7 @@ export class SciFiCloudEngine {
 
   startExpirationTicker() {
     setInterval(() => {
-      // Re-sort and recalculate relative timestamps & layout every 3 seconds
-      if (this.messages.length > 0) {
-        this.recalculateTargets();
-      }
-
+      // Clean up expired messages every 4 seconds if TTL is set
       if (this.messageTTL > 0 && this.messages.length > 0) {
         const now = Date.now();
         const expired = this.messages.filter((m) => {
@@ -666,6 +820,6 @@ export class SciFiCloudEngine {
           expired.forEach((m) => this.removeMessage(m.id));
         }
       }
-    }, 3000);
+    }, 4000);
   }
 }

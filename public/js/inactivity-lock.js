@@ -183,8 +183,8 @@ export function lockScreen(options = {}) {
 
   if (currentMode === 'login') {
     if (titleEl) titleEl.textContent = 'Security Clearance Required';
-    if (descEl) descEl.innerHTML = 'Screen blurred for privacy.<br>Enter clearance password to enter chat.';
-    if (btnEl) btnEl.textContent = 'Enter Chat ➔';
+    if (descEl) descEl.innerHTML = 'Screen blurred for privacy.<br>Enter clearance password to enter terminal.';
+    if (btnEl) btnEl.textContent = 'Enter Terminal ➔';
   } else if (currentMode === 'remote') {
     const lockedBy = options.lockedBy ? ` by ${options.lockedBy}` : '';
     if (titleEl) titleEl.textContent = 'Remote Lock Triggered';
@@ -254,12 +254,12 @@ function createOverlayDOM() {
         <div class="lock-new-msg-dot hidden" id="lockNewMsgDot" title="New messages received"></div>
       </div>
       <div class="lock-title" id="lockTitle">Security Clearance Required</div>
-      <div class="lock-desc" id="lockDesc">Screen blurred for privacy.<br>Enter clearance password to enter chat.</div>
+      <div class="lock-desc" id="lockDesc">Screen blurred for privacy.<br>Enter clearance password to enter terminal.</div>
       <form class="lock-form" id="inactivityLockForm">
         <div class="lock-input-group">
           <input type="password" id="inactivityLockInput" class="lock-input" placeholder="Enter Clearance Password" autocomplete="off" />
         </div>
-        <button type="submit" id="lockSubmitBtn" class="btn btn-primary lock-btn">Enter Chat ➔</button>
+        <button type="submit" id="lockSubmitBtn" class="btn btn-primary lock-btn">Enter Terminal ➔</button>
       </form>
       <div class="lock-error" id="lockErrorMessage"></div>
     </div>

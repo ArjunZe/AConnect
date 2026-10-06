@@ -48,12 +48,7 @@
 
 .sci-logo-icon {
   color: var(--accent-cyan);
-  animation: rotateGlow 8s linear infinite;
-}
-
-@keyframes rotateGlow {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  filter: drop-shadow(0 0 6px var(--accent-cyan));
 }
 
 .room-hud-info {
@@ -281,38 +276,12 @@
   color: #00ff88;
   font-size: 14px;
   filter: drop-shadow(0 0 6px #00ff88);
-  animation: onlineDotPulse 2s infinite ease-in-out;
 }
 
 .user-status-dot.user-dot-locked {
   color: #ff3366;
   font-size: 12px;
   filter: drop-shadow(0 0 6px rgba(255, 51, 102, 0.95));
-  animation: lockedIconPulse 2.5s infinite ease-in-out;
-}
-
-@keyframes onlineDotPulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.9;
-  }
-  50% {
-    transform: scale(1.2);
-    opacity: 1;
-    filter: drop-shadow(0 0 9px #00ff88);
-  }
-}
-
-@keyframes lockedIconPulse {
-  0%, 100% {
-    transform: scale(1);
-    opacity: 0.85;
-  }
-  50% {
-    transform: scale(1.12);
-    opacity: 1;
-    filter: drop-shadow(0 0 9px rgba(255, 51, 102, 1));
-  }
 }
 
 .room-pill.dots-pill {
@@ -1467,14 +1436,8 @@
   width: 110px;
   height: 110px;
   border-radius: 50%;
-  border: 1px solid rgba(0, 243, 255, 0.35);
-  animation: radarSweep 2.5s infinite linear;
+  border: 1px dashed rgba(0, 243, 255, 0.35);
   pointer-events: none;
-}
-
-@keyframes radarSweep {
-  0% { transform: scale(0.5); opacity: 0.9; }
-  100% { transform: scale(1.6); opacity: 0; }
 }
 
 .placeholder-icon {

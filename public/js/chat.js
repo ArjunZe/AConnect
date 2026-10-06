@@ -35,8 +35,6 @@ const fileInput = document.getElementById('fileInput');
 
 // Live Video Elements
 const liveVideoBtn = document.getElementById('liveVideoBtn');
-const leftLiveVideoBtn = document.getElementById('leftLiveVideoBtn');
-const dockVideoBtn = document.getElementById('dockVideoBtn');
 const liveVideoHUD = document.getElementById('liveVideoHUD');
 const opponentVideo = document.getElementById('opponentVideo');
 const opponentVideoPlaceholder = document.getElementById('opponentVideoPlaceholder');
@@ -739,8 +737,6 @@ function getMySocketId() {
 
 function setVideoButtonsActive(active) {
   if (liveVideoBtn) liveVideoBtn.classList.toggle('active', active);
-  if (leftLiveVideoBtn) leftLiveVideoBtn.classList.toggle('active', active);
-  if (dockVideoBtn) dockVideoBtn.classList.toggle('active-video', active);
 }
 
 function attachOpponentStream(remoteStream) {
@@ -1037,8 +1033,6 @@ async function toggleLiveVideo() {
 
 // UI Event Handlers
 liveVideoBtn?.addEventListener('click', toggleLiveVideo);
-leftLiveVideoBtn?.addEventListener('click', toggleLiveVideo);
-dockVideoBtn?.addEventListener('click', toggleLiveVideo);
 closeVideoBtn?.addEventListener('click', () => stopLiveVideo(true));
 stopVideoFeedBtn?.addEventListener('click', () => stopLiveVideo(true));
 

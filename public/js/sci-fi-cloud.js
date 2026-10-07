@@ -41,6 +41,33 @@ export function formatRelativeTime(timestamp) {
   return `${Math.floor(ageMs / 3600000)}h ago`;
 }
 
+export function fitText(ctx, text, maxWidth) {
+  if (!text || maxWidth <= 0) return '';
+  if (ctx.measureText(text).width <= maxWidth) return text;
+
+  const ellipsis = '…';
+  const ellipsisWidth = ctx.measureText(ellipsis).width;
+  if (ellipsisWidth >= maxWidth) return '';
+
+  let low = 0;
+  let high = text.length;
+  let best = '';
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const sub = text.slice(0, mid);
+    const w = ctx.measureText(sub).width + ellipsisWidth;
+    if (w <= maxWidth) {
+      best = sub;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+
+  return best ? best + ellipsis : '';
+}
+
 export class SciFiCloudEngine {
   constructor(canvasId, bgCanvasId) {
     this.canvas = document.getElementById(canvasId);
@@ -476,8 +503,10 @@ export class SciFiCloudEngine {
 
       const halfW = state.width / 2;
       const halfH = state.height / 2;
+      const cx = state.renderX !== undefined ? state.renderX : state.x;
+      const cy = state.renderY !== undefined ? state.renderY : state.y;
 
-      if (mx >= state.x - halfW && mx <= state.x + halfW && my >= state.y - halfH && my <= state.y + halfH) {
+      if (mx >= cx - halfW && mx <= cx + halfW && my >= cy - halfH && my <= cy + halfH) {
         foundHover = msg.id;
         break;
       }
@@ -504,7 +533,9 @@ export class SciFiCloudEngine {
         if (!state) continue;
         const halfW = state.width / 2;
         const halfH = state.height / 2;
-        if (mx >= state.x - halfW && mx <= state.x + halfW && my >= state.y - halfH && my <= state.y + halfH) {
+        const cx = state.renderX !== undefined ? state.renderX : state.x;
+        const cy = state.renderY !== undefined ? state.renderY : state.y;
+        if (mx >= cx - halfW && mx <= cx + halfW && my >= cy - halfH && my <= cy + halfH) {
           targetId = msg.id;
           break;
         }
@@ -524,20 +555,25 @@ export class SciFiCloudEngine {
     const screenWidth = this.canvasWidth || window.innerWidth;
     const isMobile = screenWidth < 650;
     
-    // Dynamic Recency Curve
+    // In Chrono flow, keep card scales unified (1.0 - 1.15) for balanced column alignment
+    if (this.viewMode === 'chrono') {
+      return isLatest ? 1.15 : 1.0;
+    }
+
+    // Dynamic Recency Curve for Orbit / Heatmap
     let recencyScale = 1.0;
-    if (ageSeconds < 15) recencyScale = isMobile ? 1.25 : 2.0;
-    else if (ageSeconds < 45) recencyScale = isMobile ? 1.1 : 1.5;
-    else if (ageSeconds < 120) recencyScale = isMobile ? 1.0 : 1.25;
+    if (ageSeconds < 15) recencyScale = isMobile ? 1.2 : 1.45;
+    else if (ageSeconds < 45) recencyScale = isMobile ? 1.1 : 1.3;
+    else if (ageSeconds < 120) recencyScale = isMobile ? 1.0 : 1.15;
     else if (ageSeconds < 300) recencyScale = isMobile ? 0.95 : 1.05;
     else recencyScale = isMobile ? 0.85 : 0.9;
 
     const reactionCount = (msg.reactions || []).reduce((sum, r) => sum + (r.count || 0), 0);
-    const reactionBonus = Math.min(0.35, reactionCount * 0.12);
+    const reactionBonus = Math.min(0.25, reactionCount * 0.08);
 
     const baseCalculated = recencyScale + reactionBonus;
     return isLatest 
-      ? Math.max(isMobile ? 1.2 : 1.7, baseCalculated) 
+      ? Math.max(isMobile ? 1.2 : 1.45, baseCalculated) 
       : Math.max(isMobile ? 0.8 : 0.85, baseCalculated);
   }
 
@@ -653,51 +689,99 @@ export class SciFiCloudEngine {
     const isMobile = (this.canvasWidth || window.innerWidth) < 650;
     const canvasW = this.canvasWidth || window.innerWidth;
 
-    // Node Typography & Content
-    const baseFontSize = Math.max(11, Math.floor((isMobile ? 12 : 14) * scale));
-    ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
+    // Node Typography & Content sizing
+    const baseFontSize = isMobile
+      ? Math.min(13, Math.max(11, Math.round(11.5 * (isLatest ? 1.12 : 1))))
+      : Math.min(15, Math.max(12, Math.round(13 * (isLatest ? 1.15 : 1))));
+
+    const authorFontSize = Math.max(10, Math.min(12, Math.floor(11 * (scale > 1.4 ? 1.1 : 1))));
+    const timeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
+    const badgeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
 
     const rawText = msg.text || (msg.type === 'image' ? '📷 [Hologram Image]' : '');
-    const displayText = rawText.length > 40 ? rawText.slice(0, 38) + '…' : rawText;
     const relTime = formatRelativeTime(msg.timestamp);
     const authorStr = msg.username || 'Anon';
 
-    // Measure node dimensions
-    const textMetrics = ctx.measureText(displayText);
-    const textWidth = textMetrics.width;
+    // Reactions string and width
+    let rxStr = '';
+    let rxWidth = 0;
+    const rxFontSize = Math.max(9, Math.min(11, Math.floor(10 * scale)));
+    if (msg.reactions && msg.reactions.length > 0) {
+      rxStr = msg.reactions.map(r => `${r.emoji}${r.count}`).join(' ');
+      ctx.font = `600 ${rxFontSize}px sans-serif`;
+      rxWidth = ctx.measureText(rxStr).width;
+    }
 
-    ctx.font = `500 ${Math.max(10, Math.floor((isMobile ? 9.5 : 10) * scale))}px 'Inter', sans-serif`;
-    const authorMetrics = ctx.measureText(`${authorStr} • ${relTime}`);
-    const headerWidth = authorMetrics.width + (isLatest ? (isMobile ? 80 : 120) : 40);
+    // Measure Header components
+    ctx.font = `500 ${timeFontSize}px 'Inter', sans-serif`;
+    const timeWidth = ctx.measureText(relTime).width;
 
+    ctx.font = `800 ${badgeFontSize}px 'Space Grotesk', sans-serif`;
+    const badgeWidth = isLatest ? ctx.measureText('⚡ LATEST').width + 8 : 0;
+
+    ctx.font = `700 ${authorFontSize}px 'Rajdhani', sans-serif`;
+    const authorRawWidth = ctx.measureText(authorStr.toUpperCase()).width;
+
+    // Determine max allowed card width based on view mode and device
     const isChronoMobile = this.viewMode === 'chrono' && isMobile;
-    const paddingX = Math.floor((isChronoMobile ? 8 : (isMobile ? 12 : 16)) * scale);
-    const maxAllowedWidth = isChronoMobile ? Math.min(canvasW * 0.46, 175) : canvasW - 24;
-    const minNodeW = isChronoMobile ? Math.min(120, canvasW * 0.42) : (isMobile ? 150 : 180 * (scale > 1.8 ? 1.3 : 1));
-    const calculatedNodeW = Math.max(minNodeW, Math.max(textWidth, headerWidth) + paddingX * 2);
+    const isChrono = this.viewMode === 'chrono';
+    const paddingX = Math.floor(isChronoMobile ? 8 : (isMobile ? 12 : 15));
+
+    let maxAllowedWidth;
+    let minNodeW;
+    if (isChronoMobile) {
+      maxAllowedWidth = Math.min(canvasW * 0.46, 175);
+      minNodeW = Math.min(120, canvasW * 0.40);
+    } else if (isChrono) {
+      maxAllowedWidth = Math.min(canvasW * 0.42, 300);
+      minNodeW = 160;
+    } else if (isMobile) {
+      maxAllowedWidth = Math.min(canvasW - 24, 270);
+      minNodeW = 140;
+    } else {
+      maxAllowedWidth = Math.min(canvasW * 0.45, 350);
+      minNodeW = 170;
+    }
+
+    // Measure unconstrained text width to give the card an optimal natural width
+    ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
+    const unconstrainedTextW = ctx.measureText(rawText).width + (rxWidth > 0 ? rxWidth + 10 : 0);
+    const unconstrainedHeaderW = authorRawWidth + badgeWidth + timeWidth + 12;
+
+    const desiredContentW = Math.max(unconstrainedTextW, unconstrainedHeaderW);
+    const calculatedNodeW = Math.max(minNodeW, desiredContentW + paddingX * 2);
     const nodeWidth = Math.min(calculatedNodeW, maxAllowedWidth);
-    const nodeHeight = Math.floor((isLatest ? (isMobile ? 60 : 74) : (isMobile ? 52 : 64)) * (scale > 1.8 ? 1.25 : 1));
+
+    // Node Height: calculated precisely so header, divider, and body text with descenders fit with generous padding
+    const headerH = Math.floor(20 * (scale > 1.4 ? 1.1 : 1));
+    const dividerGap = 6;
+    const bodyGap = Math.floor(18 + (baseFontSize - 11) * 0.6);
+    const bottomPadding = Math.max(8, Math.floor(baseFontSize * 0.65));
+    const nodeHeight = headerH + dividerGap + bodyGap + bottomPadding;
 
     state.width = nodeWidth;
     state.height = nodeHeight;
 
     const halfW = nodeWidth / 2;
     const halfH = nodeHeight / 2;
-    
+
     // Clamp rectX strictly within screen bounds
     let rectX = x - halfW;
     const edgeMargin = isChronoMobile ? 4 : 12;
     rectX = Math.max(edgeMargin, Math.min(canvasW - nodeWidth - edgeMargin, rectX));
     const rectY = y - halfH;
-    const radius = Math.min(12, Math.floor(8 * scale));
+    const radius = Math.min(10, Math.floor(7 * (scale > 1.4 ? 1.15 : 1)));
 
-    // Node Background (Glassmorphism dark sci-fi card)
+    state.renderX = rectX + halfW;
+    state.renderY = rectY + halfH;
+
+    // 1. Draw Card Background
     ctx.fillStyle = isLatest ? 'rgba(8, 20, 36, 0.94)' : 'rgba(12, 16, 26, 0.88)';
     ctx.beginPath();
     ctx.roundRect(rectX, rectY, nodeWidth, nodeHeight, radius);
     ctx.fill();
 
-    // Crisp Sci-Fi Card Stroke (Zero shadowBlur overhead)
+    // 2. Crisp Card Stroke
     ctx.lineWidth = isLatest ? 2 : isHovered ? 1.5 : 1;
     ctx.strokeStyle = isLatest ? '#00f3ff' : isHovered ? palette.main : 'rgba(0, 243, 255, 0.25)';
     ctx.stroke();
@@ -708,38 +792,46 @@ export class SciFiCloudEngine {
       ctx.strokeRect(rectX - 2, rectY - 2, nodeWidth + 4, nodeHeight + 4);
     }
 
-    // Corner Sci-Fi Tech Accents
+    // 3. Corner Sci-Fi Tech Accents
     ctx.fillStyle = palette.main;
     ctx.fillRect(rectX, rectY, 4, 4);
     ctx.fillRect(rectX + nodeWidth - 4, rectY, 4, 4);
     ctx.fillRect(rectX, rectY + nodeHeight - 4, 4, 4);
     ctx.fillRect(rectX + nodeWidth - 4, rectY + nodeHeight - 4, 4, 4);
 
-    // Header Row: Author + Recency Badge + Timestamp
-    const headerY = rectY + Math.floor(20 * (scale > 1.8 ? 1.15 : 1));
+    // 4. Safe Clip Inner Content Boundary (zero content can ever leak outside the card)
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(rectX + 1, rectY + 1, nodeWidth - 2, nodeHeight - 2, Math.max(0, radius - 1));
+    ctx.clip();
 
-    // Author Name
+    // 5. Header Row
+    const headerY = rectY + headerH - 2;
+
+    // Available width for author name
+    const availAuthorW = Math.max(20, nodeWidth - paddingX * 2 - timeWidth - badgeWidth - 8);
+    ctx.font = `700 ${authorFontSize}px 'Rajdhani', sans-serif`;
+    const displayAuthor = fitText(ctx, authorStr.toUpperCase(), availAuthorW);
     ctx.fillStyle = palette.main;
-    ctx.font = `700 ${Math.max(10, Math.floor(12 * (scale > 1.8 ? 1.15 : 1)))}px 'Rajdhani', sans-serif`;
-    ctx.fillText(authorStr.toUpperCase(), rectX + paddingX, headerY);
+    ctx.fillText(displayAuthor, rectX + paddingX, headerY);
 
-    const authorWidth = ctx.measureText(authorStr.toUpperCase()).width;
+    const authorActualW = ctx.measureText(displayAuthor).width;
 
     // Recency Badge Tag (e.g. ⚡ LATEST)
     if (isLatest) {
-      const badgeX = rectX + paddingX + authorWidth + 8;
+      const badgeX = rectX + paddingX + authorActualW + 6;
       ctx.fillStyle = '#00f3ff';
-      ctx.font = `800 ${Math.max(9, Math.floor(9.5 * (scale > 1.8 ? 1.1 : 1)))}px 'Space Grotesk', sans-serif`;
-      ctx.fillText(`⚡ LATEST`, badgeX, headerY);
+      ctx.font = `800 ${badgeFontSize}px 'Space Grotesk', sans-serif`;
+      ctx.fillText('⚡ LATEST', badgeX, headerY);
     }
 
     // Timestamp Tag
     ctx.fillStyle = 'rgba(160, 180, 210, 0.75)';
-    ctx.font = `500 ${Math.max(9, Math.floor(9.5 * (scale > 1.8 ? 1.1 : 1)))}px 'Inter', sans-serif`;
-    ctx.fillText(relTime, rectX + nodeWidth - paddingX - ctx.measureText(relTime).width, headerY);
+    ctx.font = `500 ${timeFontSize}px 'Inter', sans-serif`;
+    ctx.fillText(relTime, rectX + nodeWidth - paddingX - timeWidth, headerY);
 
-    // Subtle Divider Line between Username Header and Message Text
-    const dividerY = headerY + Math.floor(7 * (scale > 1.8 ? 1.1 : 1));
+    // Subtle Divider Line
+    const dividerY = rectY + headerH + Math.floor(dividerGap / 2);
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -747,21 +839,27 @@ export class SciFiCloudEngine {
     ctx.lineTo(rectX + nodeWidth - paddingX, dividerY);
     ctx.stroke();
 
-    // Body Message Text
-    const bodyY = dividerY + Math.floor(21 * (scale > 1.8 ? 1.15 : 1));
-    ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
-    ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
-    ctx.fillText(displayText, rectX + paddingX, bodyY);
+    // 6. Body Message Text & Reaction Badges
+    const bodyY = dividerY + bodyGap;
 
-    // Reaction Chips Badges
-    if (msg.reactions && msg.reactions.length > 0) {
-      const rxStr = msg.reactions.map(r => `${r.emoji}${r.count}`).join(' ');
-      ctx.font = `600 ${Math.max(10, Math.floor(10 * scale))}px sans-serif`;
+    // Reaction Chips Badges (if present)
+    if (rxWidth > 0) {
+      ctx.font = `600 ${rxFontSize}px sans-serif`;
       ctx.fillStyle = '#ffb700';
-      ctx.fillText(rxStr, rectX + nodeWidth - paddingX - ctx.measureText(rxStr).width, bodyY);
+      ctx.fillText(rxStr, rectX + nodeWidth - paddingX - rxWidth, bodyY);
     }
 
-    ctx.restore();
+    // Available width for body text: exact remaining pixel space!
+    const availTextW = Math.max(10, nodeWidth - paddingX * 2 - (rxWidth > 0 ? rxWidth + 8 : 0));
+    ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
+    const displayText = fitText(ctx, rawText, availTextW);
+
+    ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
+    ctx.fillText(displayText, rectX + paddingX, bodyY);
+
+    ctx.restore(); // Restores inner clip
+
+    ctx.restore(); // Restores outer save
   }
 
   showInspectCard(msg) {

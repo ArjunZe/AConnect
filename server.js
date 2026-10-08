@@ -176,14 +176,18 @@ function roomUsers(roomName) {
 
 function emitRoomList(targetSocket) {
   const roomList = Array.from(rooms.entries()).map(([name, details]) => {
-    const activeUsers = details.users.map((id) => users.get(id)).filter(Boolean);
+    const activeUsers = details.users.map((id) => {
+      const u = users.get(id);
+      return u ? {
+        socketId: id,
+        username: u.username,
+        isLocked: u.isLocked !== false
+      } : null;
+    }).filter(Boolean);
     return {
       name,
       count: details.users.length,
-      users: activeUsers.map((u) => ({
-        username: u.username,
-        isLocked: u.isLocked !== false
-      })),
+      users: activeUsers,
       createdAt: details.createdAt,
       messageCount: details.messageCount,
       isPrivate: Boolean(details.password),
@@ -305,9 +309,23 @@ function destroyRoomMessagesSilently(roomName) {
 
 ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 24 * 60 * 60 * 1000 });
 
+function touchUserActivity(socketId) {
+  const user = users.get(socketId);
+  if (user) {
+    user.lastActivity = Date.now();
+  }
+}
+
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
-  users.set(socket.id, { username, room: null, isLocked: true, joinedAt: new Date().toISOString() });
+  users.set(socket.id, {
+    socketId: socket.id,
+    username,
+    room: null,
+    isLocked: true,
+    joinedAt: new Date().toISOString(),
+    lastActivity: Date.now()
+  });
 
   socket.emit('welcome', { username, socketId: socket.id });
   emitOnlineCount();
@@ -319,6 +337,7 @@ chatNamespace.on('connection', (socket) => {
       const user = users.get(socket.id);
       if (user) {
         user.isLocked = false;
+        user.lastActivity = Date.now();
         if (user.room) {
           chatNamespace.to(user.room).emit('room-users', roomUsers(user.room));
         }
@@ -352,10 +371,17 @@ chatNamespace.on('connection', (socket) => {
     const user = users.get(socket.id);
     if (!user) return;
     user.isLocked = isLocked !== false;
+    if (!user.isLocked) {
+      user.lastActivity = Date.now();
+    }
     if (user.room) {
       chatNamespace.to(user.room).emit('room-users', roomUsers(user.room));
     }
     emitRoomList(chatNamespace);
+  });
+
+  socket.on('user-activity', () => {
+    touchUserActivity(socket.id);
   });
 
   socket.on('remote-lock-user', (payload = {}, callback) => {
@@ -398,6 +424,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('update-room-ttl', (payload = {}, callback) => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
 
@@ -497,6 +524,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('add-room-note', (payload = {}, callback) => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
     if (!rooms.has(targetRoomName)) {
@@ -534,6 +562,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('delete-room-note', (payload = {}, callback) => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     const targetRoomName = String(payload?.room || user?.room || 'Default').trim().slice(0, 40) || 'Default';
     if (!rooms.has(targetRoomName)) {
@@ -646,7 +675,12 @@ chatNamespace.on('connection', (socket) => {
     }
 
     user.room = targetRoom;
-    user.isLocked = false;
+    if (payload && typeof payload.isLocked === 'boolean') {
+      user.isLocked = payload.isLocked;
+    } else if (user.isLocked === undefined) {
+      user.isLocked = false;
+    }
+    user.lastActivity = Date.now();
     users.set(socket.id, user);
     clearRoomCleanupTimer(targetRoom);
 
@@ -681,6 +715,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('send-message', (payload, callback) => {
+    touchUserActivity(socket.id);
     if (!checkMessageRateLimit(socket.id)) {
       callback?.({ ok: false, error: 'Rate limit exceeded. Max 30 messages/minute.' });
       socket.emit('rate-limit-hit', { message: 'Rate limit exceeded. Try again in a moment.' });
@@ -719,6 +754,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('purge-room-messages', () => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     if (!user || !user.room || !rooms.has(user.room)) return;
     const room = rooms.get(user.room);
@@ -744,6 +780,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('send-file', (payload, callback) => {
+    touchUserActivity(socket.id);
     if (!checkMessageRateLimit(socket.id)) {
       callback?.({ ok: false, error: 'Rate limit exceeded. Max 30 messages/minute.' });
       socket.emit('rate-limit-hit', { message: 'Rate limit exceeded. Try again in a moment.' });
@@ -783,6 +820,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('add-reaction', ({ messageId, emoji }) => {
+    touchUserActivity(socket.id);
     if (!allowedReactions.has(emoji)) return;
     const user = users.get(socket.id);
     if (!user?.room) return;
@@ -812,6 +850,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('typing-start', () => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     if (!user?.room) return;
     socket.to(user.room).emit('typing-start', { username: user.username, socketId: socket.id });
@@ -824,6 +863,7 @@ chatNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-feed-join', ({ room }, callback) => {
+    touchUserActivity(socket.id);
     const user = users.get(socket.id);
     const targetRoom = room || user?.room || 'Default';
     if (!activeRoomVideoPeers.has(targetRoom)) {
@@ -900,6 +940,34 @@ chatNamespace.on('connection', (socket) => {
     emitRoomList(chatNamespace);
   });
 });
+
+// Server-side inactivity watchdog: checks for 5 minutes of inactivity every 10 seconds
+const INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+setInterval(() => {
+  const now = Date.now();
+  const roomsToNotify = new Set();
+  let listChanged = false;
+
+  for (const [socketId, user] of users.entries()) {
+    if (!user.isLocked && user.room && user.lastActivity) {
+      if (now - user.lastActivity >= INACTIVITY_TIMEOUT_MS) {
+        user.isLocked = true;
+        roomsToNotify.add(user.room);
+        listChanged = true;
+        chatNamespace.to(socketId).emit('force-lock-screen', { by: 'Inactivity (5m)' });
+      }
+    }
+  }
+
+  for (const roomName of roomsToNotify) {
+    chatNamespace.to(roomName).emit('room-users', roomUsers(roomName));
+  }
+
+  if (listChanged) {
+    emitRoomList(chatNamespace);
+  }
+}, 10000);
 
 callNamespace.on('connection', (socket) => {
   socket.on('verify-lock-password', ({ password }, callback) => {

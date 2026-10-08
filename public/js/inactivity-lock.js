@@ -10,7 +10,8 @@ const STORAGE_KEY_LOCKED = 'aconnect_screen_locked';
 
 let lastActivityTime = Date.now();
 let checkInterval = null;
-let isLocked = false;
+let isLocked = (typeof document !== 'undefined' && document.body && document.body.classList.contains('screen-locked')) ||
+  (typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_LOCKED) === 'true');
 let socketInstance = null;
 let currentMode = 'login'; // 'login' | 'inactivity'
 let failedAttempts = 0;
@@ -19,16 +20,14 @@ export function setLockSocket(socket) {
   socketInstance = socket;
   if (socketInstance) {
     socketInstance.on('new-message', () => {
-      if (isLocked) {
+      if (isScreenLocked()) {
         showLockMessageDot();
       }
     });
     socketInstance.on('connect', () => {
-      socketInstance.emit('user-lock-state', { isLocked });
+      socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
     });
-    if (socketInstance.connected) {
-      socketInstance.emit('user-lock-state', { isLocked });
-    }
+    socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
   }
 }
 
@@ -47,12 +46,26 @@ export function hideLockMessageDot() {
 }
 
 export function isScreenLocked() {
-  return isLocked;
+  if (isLocked) return true;
+  if (typeof document !== 'undefined' && document.body && document.body.classList.contains('screen-locked')) return true;
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY_LOCKED) === 'true') return true;
+  return false;
+}
+
+let lastServerActivityPing = 0;
+function notifyServerActivity() {
+  const now = Date.now();
+  if (now - lastServerActivityPing < 20000) return;
+  lastServerActivityPing = now;
+  if (socketInstance && !isScreenLocked()) {
+    socketInstance.emit('user-activity');
+  }
 }
 
 export function registerUserActivity() {
   lastActivityTime = Date.now();
-  if (isLocked) return;
+  if (isScreenLocked()) return;
+  notifyServerActivity();
 }
 
 export function initInactivityLock(socket = null) {
@@ -114,6 +127,9 @@ export function initInactivityLock(socket = null) {
         handleTabFocusLost();
       } else {
         checkInactivity();
+        if (socketInstance) {
+          socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
+        }
       }
     });
 
@@ -165,7 +181,7 @@ export function lockScreen(options = {}) {
   currentMode = options.mode || (window.hasEnteredChat ? 'inactivity' : 'login');
   localStorage.setItem(STORAGE_KEY_LOCKED, 'true');
   
-  if (socketInstance && socketInstance.connected) {
+  if (socketInstance) {
     socketInstance.emit('user-lock-state', { isLocked: true });
   }
 
@@ -222,7 +238,7 @@ export function unlockScreen() {
   localStorage.removeItem(STORAGE_KEY_LOCKED);
   lastActivityTime = Date.now();
   
-  if (socketInstance && socketInstance.connected) {
+  if (socketInstance) {
     socketInstance.emit('user-lock-state', { isLocked: false });
   }
 

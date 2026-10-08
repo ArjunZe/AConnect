@@ -91,11 +91,21 @@ window.onScreenLocked = () => {
   if (typeof window.resetNotesAuth === 'function') {
     window.resetNotesAuth();
   }
+  socket.emit('user-lock-state', { isLocked: true });
+  if (latestRoomUsers && latestRoomUsers.length > 0) {
+    renderRoomUserDots(latestRoomUsers);
+    renderRemoteLockUsers(latestRoomUsers);
+  }
 };
 
 // Hook up login unlock completion
 window.onSuccessfulUnlock = (pass) => {
   window.hasEnteredChat = true;
+  socket.emit('user-lock-state', { isLocked: false });
+  if (latestRoomUsers && latestRoomUsers.length > 0) {
+    renderRoomUserDots(latestRoomUsers);
+    renderRemoteLockUsers(latestRoomUsers);
+  }
   joinRoom(currentRoom || 'Default', false, pass);
 };
 
@@ -210,7 +220,8 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
   if (isLiveVideoActive) {
     stopLiveVideo(false);
   }
-  socket.emit('join-room', { roomName, password }, (response) => {
+  const isLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
+  socket.emit('join-room', { roomName, password, isLocked }, (response) => {
     if (!response?.ok) {
       if (response?.purged) {
         if (typeof window.onDestroyMessagesSilently === 'function') {
@@ -246,6 +257,8 @@ function loadRooms(rooms) {
   roomListEl.innerHTML = '';
   const defaultRoomMissing = !rooms.some((room) => room.name === 'Default');
   const renderRooms = defaultRoomMissing ? [{ name: 'Default', count: 0, users: [], isPrivate: false, messageTTL: 86400000 }, ...rooms] : rooms;
+  const myLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
+  const myId = getMySocketId();
 
   renderRooms.forEach((room) => {
     const li = document.createElement('li');
@@ -256,7 +269,9 @@ function loadRooms(rooms) {
     let dotsHtml = '';
     if (room.users && room.users.length > 0) {
       dotsHtml = room.users.map((u) => {
-        return u.isLocked
+        const isMe = (myUsername && u.username === myUsername) || (myId && u.socketId === myId);
+        const isLocked = isMe ? myLocked : Boolean(u.isLocked);
+        return isLocked
           ? `<span class="room-pill-dot locked" title="${escapeHtml(u.username)}: Locked">🔒</span>`
           : `<span class="room-pill-dot online" title="${escapeHtml(u.username)}: Online">●</span>`;
       }).join('');
@@ -279,9 +294,13 @@ function renderRoomUserDots(users = []) {
     return;
   }
 
+  const myId = getMySocketId();
+  const myLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
+
   // 1 user 1 dot, 2 user 2 dots. Online green dot, locked red pad lock icon.
   const dotsHtml = users.map((user) => {
-    const isLocked = Boolean(user.isLocked);
+    const isMe = (user.socketId && user.socketId === myId) || (myUsername && user.username === myUsername);
+    const isLocked = isMe ? myLocked : Boolean(user.isLocked);
     const safeName = escapeHtml(user.username || 'User');
     if (isLocked) {
       return `<span class="user-status-dot user-dot-locked" title="${safeName}: Locked">🔒</span>`;
@@ -296,18 +315,27 @@ let latestRoomUsers = [];
 
 function updateRoomUsers(users = []) {
   latestRoomUsers = users;
+  const myId = getMySocketId();
+  const myLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
+
+  // If server had mismatched lock state for us, sync server immediately
+  const meInRoom = users.find((u) => (u.socketId && u.socketId === myId) || (myUsername && u.username === myUsername));
+  if (meInRoom && Boolean(meInRoom.isLocked) !== myLocked) {
+    socket.emit('user-lock-state', { isLocked: myLocked });
+  }
+
   renderRoomUserDots(users);
   renderRemoteLockUsers(users);
 
   roomUsersEl.innerHTML = '';
-  const myId = getMySocketId();
 
   users.forEach((user) => {
-    const isMe = user.socketId === myId;
+    const isMe = (user.socketId && user.socketId === myId) || (myUsername && user.username === myUsername);
+    const isLocked = isMe ? myLocked : Boolean(user.isLocked);
     const palette = getUserColor(user.username);
     const li = document.createElement('li');
     li.className = 'user-item' + (isMe ? ' current-user-item' : '');
-    const statusIcon = user.isLocked
+    const statusIcon = isLocked
       ? `<span class="node-status-icon locked" title="Screen Locked">🔒</span>`
       : `<span class="online-pulse-dot" title="Online"></span>`;
 
@@ -331,21 +359,25 @@ function renderRemoteLockUsers(users = []) {
   }
 
   const myId = getMySocketId();
+  const myLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
 
   users.forEach((user) => {
-    const isMe = user.socketId === myId;
+    const isMe = (user.socketId && user.socketId === myId) || (myUsername && user.username === myUsername);
+    const isLocked = isMe ? myLocked : Boolean(user.isLocked);
     const palette = getUserColor(user.username);
     const li = document.createElement('li');
     li.className = 'remote-lock-user-item' + (isMe ? ' is-me' : '');
 
-    const statusDot = user.isLocked
+    const statusDot = isLocked
       ? `<span style="font-size: 11px;" title="Screen Locked">🔒</span>`
       : `<span class="online-pulse-dot" style="width: 7px; height: 7px;" title="Online"></span>`;
 
     let actionBtnHtml = '';
     if (isMe) {
-      actionBtnHtml = `<button type="button" class="remote-lock-action-btn lock-self" data-action="lock-self">🔒 Lock (You)</button>`;
-    } else if (user.isLocked) {
+      actionBtnHtml = isLocked
+        ? `<button type="button" class="remote-lock-action-btn locked-state" disabled title="Your screen is locked">Locked 🔒 (You)</button>`
+        : `<button type="button" class="remote-lock-action-btn lock-self" data-action="lock-self">🔒 Lock (You)</button>`;
+    } else if (isLocked) {
       actionBtnHtml = `<button type="button" class="remote-lock-action-btn locked-state" disabled title="Node is already locked">Locked 🔒</button>`;
     } else {
       actionBtnHtml = `<button type="button" class="remote-lock-action-btn lock-target" data-action="remote-lock" data-socket-id="${escapeHtml(user.socketId)}" data-username="${escapeHtml(user.username)}">🔒 Remote Lock</button>`;
@@ -551,8 +583,9 @@ socket.on('room-joined', async (data) => {
 
 socket.on('force-lock-screen', (data) => {
   if (typeof window.lockScreen === 'function') {
+    const isInactive = data?.by && data.by.toLowerCase().includes('inactivity');
     window.lockScreen({
-      mode: 'remote',
+      mode: isInactive ? 'inactivity' : 'remote',
       lockedBy: data?.by || 'Remote Node'
     });
   }

@@ -1,5 +1,3 @@
-import { formatBytes } from './utils.js';
-
 /**
  * Sci-Fi Quantum Holographic Message Cloud Engine for AnonConnect
  * Optimizations:
@@ -10,30 +8,18 @@ import { formatBytes } from './utils.js';
  * - Capped Device Pixel Ratio (DPR <= 1.75) for modern high-refresh OLED devices
  */
 
-export async function downloadImageFile(url, fileName = 'image.jpg') {
+export function downloadImageFile(url, fileName = 'image.jpg') {
   if (!url) return;
-  try {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    const blobUrl = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = blobUrl;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
-  } catch (err) {
-    console.warn('[Download] Direct blob download failed, falling back to direct anchor link:', err);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-  }
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName || 'image.jpg';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    try {
+      document.body.removeChild(a);
+    } catch (_) {}
+  }, 100);
 }
 
 const NEON_PALETTES = [
@@ -348,25 +334,19 @@ export class SciFiCloudEngine {
         this.inspectImage.classList.add('pressing');
         if (this.imageLongPressOverlay) {
           this.imageLongPressOverlay.classList.remove('hidden');
-          const span = this.imageLongPressOverlay.querySelector('span:last-child');
-          if (span) span.textContent = 'Hold to download...';
         }
 
         pressTimer = setTimeout(() => {
           if (navigator.vibrate) {
-            try { navigator.vibrate(50); } catch (_) {}
+            try { navigator.vibrate(40); } catch (_) {}
           }
           const url = this.inspectImageWrap?.dataset.downloadUrl || this.inspectImage?.src;
           const name = this.inspectImageWrap?.dataset.fileName || 'image.jpg';
           if (url) {
             downloadImageFile(url, name);
           }
-          if (this.imageLongPressOverlay) {
-            const span = this.imageLongPressOverlay.querySelector('span:last-child');
-            if (span) span.textContent = 'Original file saved!';
-          }
-          setTimeout(() => cancelPress(), 800);
-        }, 550);
+          setTimeout(() => cancelPress(), 250);
+        }, 400);
       };
 
       const cancelPress = () => {
@@ -379,8 +359,6 @@ export class SciFiCloudEngine {
         }
         if (this.imageLongPressOverlay) {
           this.imageLongPressOverlay.classList.add('hidden');
-          const span = this.imageLongPressOverlay.querySelector('span:last-child');
-          if (span) span.textContent = 'Hold to download...';
         }
       };
 
@@ -837,7 +815,7 @@ export class SciFiCloudEngine {
     const timeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
     const badgeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
 
-    const rawText = msg.text || (msg.type === 'image' ? '📷 [Hologram Image]' : '');
+    const rawText = msg.text || (msg.type === 'image' ? 'Image' : '');
     const relTime = formatRelativeTime(msg.timestamp);
     const authorStr = msg.username || 'Anon';
 
@@ -1018,7 +996,7 @@ export class SciFiCloudEngine {
     }
 
     if (this.inspectText) {
-      this.inspectText.textContent = msg.text || (msg.type === 'image' ? '[Shared Hologram Image]' : '');
+      this.inspectText.textContent = msg.text || (msg.type === 'image' ? 'Image' : '');
     }
 
     const isImage = msg.type === 'image';
@@ -1038,8 +1016,7 @@ export class SciFiCloudEngine {
       }
 
       if (this.downloadFullImageBtn) {
-        const sizeInfo = msg.fileSize ? ` (${formatBytes(msg.fileSize)})` : '';
-        this.downloadFullImageBtn.textContent = `📥 Download Full Quality${sizeInfo}`;
+        this.downloadFullImageBtn.textContent = 'Download';
       }
     } else {
       if (this.inspectImageWrap) {

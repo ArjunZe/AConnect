@@ -510,6 +510,49 @@ window.addEventListener('focus', () => {
   setTimeout(() => { window.isOpeningFilePicker = false; }, 300);
 });
 
+function uploadFileWithProgress(file, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/upload', true);
+    xhr.setRequestHeader('Content-Type', file.type || 'image/jpeg');
+    xhr.setRequestHeader('X-File-Name', encodeURIComponent(file.name || 'image.jpg'));
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && e.total > 0) {
+        const percent = Math.min(100, Math.round((e.loaded / e.total) * 100));
+        onProgress(percent);
+      }
+    };
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (res.ok) {
+            resolve(res);
+          } else {
+            reject(new Error(res.error || 'Server rejected image upload.'));
+          }
+        } catch (_) {
+          reject(new Error('Invalid response from server.'));
+        }
+      } else {
+        let errMessage = `Upload failed (HTTP ${xhr.status})`;
+        try {
+          const res = JSON.parse(xhr.responseText);
+          if (res.error) errMessage = res.error;
+        } catch (_) {}
+        reject(new Error(errMessage));
+      }
+    };
+
+    xhr.onerror = () => reject(new Error('Network error during image upload.'));
+    xhr.onabort = () => reject(new Error('Upload aborted.'));
+
+    xhr.send(file);
+  });
+}
+
 if (fileInput) {
   fileInput.addEventListener('change', () => {
     window.isOpeningFilePicker = false;
@@ -524,29 +567,29 @@ if (fileInput) {
     }
 
     const rawCaption = sanitizeMessage(messageInput?.value || '').slice(0, 200);
-    if (messageInput) messageInput.value = '';
     const selectedFile = file;
     fileInput.value = '';
 
+    if (messageInput) {
+      messageInput.value = 'Uploading: 0%...';
+      messageInput.readOnly = true;
+    }
+
     (async () => {
       try {
-        const uploadRes = await fetch('/api/upload', {
-          method: 'POST',
-          headers: {
-            'Content-Type': selectedFile.type || 'image/jpeg',
-            'X-File-Name': encodeURIComponent(selectedFile.name || 'image.jpg')
-          },
-          body: selectedFile
+        const uploadData = await uploadFileWithProgress(selectedFile, (percent) => {
+          if (messageInput) {
+            if (percent < 100) {
+              messageInput.value = `Uploading: ${percent}%...`;
+            } else {
+              messageInput.value = 'Uploading: 100%...';
+            }
+          }
         });
 
-        if (!uploadRes.ok) {
-          const errData = await uploadRes.json().catch(() => ({}));
-          throw new Error(errData.error || `Upload failed: HTTP ${uploadRes.status}`);
-        }
-
-        const uploadData = await uploadRes.json();
-        if (!uploadData.ok) {
-          throw new Error(uploadData.error || 'Server rejected image upload.');
+        if (messageInput) {
+          messageInput.value = '';
+          messageInput.readOnly = false;
         }
 
         let encryptedCaption = '';
@@ -569,6 +612,10 @@ if (fileInput) {
         });
       } catch (err) {
         console.error('[Upload error]', err);
+        if (messageInput) {
+          messageInput.value = rawCaption;
+          messageInput.readOnly = false;
+        }
         alert(err.message || 'Image upload failed. Please try again.');
       }
     })();

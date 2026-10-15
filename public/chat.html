@@ -179,17 +179,13 @@
           <div class="inspect-body" id="inspectText">Full message text goes here...</div>
           <div class="inspect-image-wrap hidden" id="inspectImageWrap">
             <div class="inspect-image-container" id="inspectImageContainer">
-              <img id="inspectImage" src="" alt="attachment" title="Long press to download full quality image" />
+              <img id="inspectImage" src="" alt="attachment" />
               <div id="imageLongPressOverlay" class="image-long-press-overlay hidden">
                 <span class="long-press-spinner">⬇️</span>
-                <span>Hold to download...</span>
               </div>
             </div>
             <div class="inspect-image-actions">
-              <button type="button" id="downloadFullImageBtn" class="inspect-download-btn" title="Download original full quality image to device">
-                📥 Download Full Quality
-              </button>
-              <div class="inspect-image-hint">💡 Long press image to save directly</div>
+              <button type="button" id="downloadFullImageBtn" class="inspect-download-btn">Download</button>
             </div>
           </div>
           <div class="inspect-reactions" id="inspectReactions"></div>
@@ -218,7 +214,7 @@
     <footer class="chat-hud-dock">
       <form id="messageForm" class="dock-form">
         <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji Panel">😊</button>
-        <button type="button" id="fileButton" class="dock-action-btn" title="Attach Hologram/Image">📎</button>
+        <button type="button" id="fileButton" class="dock-action-btn" title="Attach Image">📎</button>
         <input type="file" id="fileInput" class="hidden" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" />
         
         <div class="dock-input-wrap">

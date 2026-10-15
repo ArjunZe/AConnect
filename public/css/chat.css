@@ -582,81 +582,9 @@
   -webkit-user-drag: none;
 }
 
-.inspect-image-container img.pressing {
-  transform: scale(0.96);
-  filter: brightness(0.8);
-}
-
-.image-long-press-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(10, 16, 35, 0.78);
-  backdrop-filter: blur(4px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--accent-cyan);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  pointer-events: none;
-  animation: fadeInOverlay 0.15s ease;
-}
-
-.image-long-press-overlay.hidden {
-  display: none !important;
-}
-
-.long-press-spinner {
-  font-size: 26px;
-  animation: bounceDown 0.6s infinite alternate ease-in-out;
-}
-
-@keyframes fadeInOverlay {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes bounceDown {
-  from { transform: translateY(-4px); }
-  to { transform: translateY(4px); }
-}
-
-.inspect-image-actions {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 0.5rem 0.65rem;
-  background: rgba(15, 23, 42, 0.65);
-  border-top: 1px solid var(--border);
-}
-
-.inspect-download-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  padding: 0.45rem 0.85rem;
-  background: linear-gradient(135deg, rgba(0, 243, 255, 0.2), rgba(0, 150, 255, 0.25));
-  border: 1px solid var(--accent-cyan);
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
-  border-radius: 6px;
-  cursor: pointer;
-  letter-spacing: 0.5px;
-  transition: all 0.2s ease;
-}
-
-.inspect-download-btn:hover {
-  background: linear-gradient(135deg, rgba(0, 243, 255, 0.35), rgba(0, 150, 255, 0.45));
-  box-shadow: 0 0 12px rgba(0, 243, 255, 0.4);
-}
-
-.inspect-download-btn:active {
-  transform: scale(0.98);
+.inspect-image-container img.loading-full {
+  filter: blur(2px);
+  opacity: 0.88;
 }
 
 .inspect-reactions {

@@ -1,5 +1,5 @@
 import { createSocket } from './socket-client.js';
-import { debounce, generateUsername, sanitizeMessage, showNotification } from './utils.js';
+import { debounce, formatBytes, generateUsername, sanitizeMessage, showNotification } from './utils.js';
 import { encryptPayload, decryptPayload, decryptMessages } from './e2ee.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
 import { initInactivityLock } from './inactivity-lock.js';
@@ -510,6 +510,45 @@ window.addEventListener('focus', () => {
   setTimeout(() => { window.isOpeningFilePicker = false; }, 300);
 });
 
+export function generateThumbnail(file, maxDimension = 320, quality = 0.55) {
+  return new Promise((resolve) => {
+    if (!file || !file.type.startsWith('image/')) {
+      resolve('');
+      return;
+    }
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let w = img.width;
+      let h = img.height;
+      if (w > h) {
+        if (w > maxDimension) {
+          h = Math.round((h * maxDimension) / w);
+          w = maxDimension;
+        }
+      } else {
+        if (h > maxDimension) {
+          w = Math.round((w * maxDimension) / h);
+          h = maxDimension;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, w);
+      canvas.height = Math.max(1, h);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      const thumbData = canvas.toDataURL('image/jpeg', quality);
+      resolve(thumbData);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve('');
+    };
+    img.src = objectUrl;
+  });
+}
+
 function uploadFileWithProgress(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -519,8 +558,9 @@ function uploadFileWithProgress(file, onProgress) {
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && e.total > 0) {
-        const percent = Math.min(100, Math.round((e.loaded / e.total) * 100));
-        onProgress(percent);
+        // Cap upload phase at 99% until server responds with success
+        const percent = Math.min(99, Math.round((e.loaded / e.total) * 100));
+        onProgress({ loaded: e.loaded, total: e.total, percent });
       }
     };
 
@@ -529,6 +569,7 @@ function uploadFileWithProgress(file, onProgress) {
         try {
           const res = JSON.parse(xhr.responseText);
           if (res.ok) {
+            onProgress({ loaded: file.size, total: file.size, percent: 100 });
             resolve(res);
           } else {
             reject(new Error(res.error || 'Server rejected image upload.'));
@@ -571,21 +612,27 @@ if (fileInput) {
     fileInput.value = '';
 
     if (messageInput) {
-      messageInput.value = 'Uploading: 0%...';
+      messageInput.value = `Preparing ${formatBytes(selectedFile.size)}...`;
       messageInput.readOnly = true;
     }
 
     (async () => {
       try {
-        const uploadData = await uploadFileWithProgress(selectedFile, (percent) => {
+        const thumbPromise = generateThumbnail(selectedFile, 320, 0.55);
+
+        const uploadData = await uploadFileWithProgress(selectedFile, ({ loaded, total, percent }) => {
           if (messageInput) {
-            if (percent < 100) {
-              messageInput.value = `Uploading: ${percent}%...`;
+            if (percent < 99) {
+              messageInput.value = `Uploading: ${formatBytes(loaded)} / ${formatBytes(total)} (${percent}%)`;
+            } else if (percent === 99) {
+              messageInput.value = `Saving on server (${formatBytes(total)})...`;
             } else {
-              messageInput.value = 'Uploading: 100%...';
+              messageInput.value = 'Complete!';
             }
           }
         });
+
+        const thumbData = await thumbPromise;
 
         if (messageInput) {
           messageInput.value = '';
@@ -602,6 +649,7 @@ if (fileInput) {
           imageId: uploadData.imageId,
           imageUrl: uploadData.imageUrl,
           downloadUrl: uploadData.downloadUrl,
+          thumbData: thumbData || '',
           fileName: uploadData.fileName,
           fileSize: uploadData.fileSize,
           caption: encryptedCaption

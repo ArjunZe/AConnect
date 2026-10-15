@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnonConnect // Secure Media Repository</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/gallery.css" />
+</head>
+<body class="gallery-page">
+  <header class="gallery-header">
+    <div class="gallery-brand">
+      <span class="gallery-title">ANONCONNECT // MEDIA VAULT</span>
+      <span id="vaultStatusBadge" class="vault-badge">🔒 SECURE VAULT</span>
+    </div>
+    <div class="gallery-nav-actions">
+      <button id="lockVaultBtn" class="btn-vault-action hidden" title="Lock and conceal vault">🔒 Lock Vault</button>
+      <button id="refreshVaultBtn" class="btn-vault-action hidden" title="Reload repository">🔄 Refresh</button>
+      <a href="/" class="btn-vault-action btn-vault-primary" title="Return to Chat HUD">💬 Back to Chat</a>
+    </div>
+  </header>
+
+  <main class="gallery-container">
+    <!-- Vault Security Clearance Screen -->
+    <section id="vaultAuthSection" class="vault-auth-card">
+      <div class="vault-auth-icon">🛡️</div>
+      <h2 class="vault-auth-title">RESTRICTED MEDIA VAULT</h2>
+      <p class="vault-auth-desc">Enter the group security key / room password to decrypt and access original full-quality media uploads.</p>
+      
+      <form id="vaultAuthForm" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="password" id="vaultPasswordInput" class="vault-auth-input" placeholder="Security key / password..." autocomplete="current-password" autofocus />
+        <div id="vaultAuthError" class="vault-error-banner hidden"></div>
+        <button type="submit" id="vaultAuthSubmitBtn" class="btn-vault-action btn-vault-primary" style="justify-content: center; padding: 0.65rem;">
+          🔓 Decrypt Vault ➔
+        </button>
+      </form>
+    </section>
+
+    <!-- Gallery Content Screen (Shown after successful decryption) -->
+    <section id="galleryContentSection" class="hidden" style="display: flex; flex-direction: column; gap: 1rem;">
+      <div class="gallery-stats-bar">
+        <div class="gallery-stats-group">
+          <span class="stat-item">Archived Files: <strong id="galleryTotalCount">0</strong></span>
+          <span class="stat-item">Total Volume: <strong id="galleryTotalSize">0 B</strong></span>
+        </div>
+        <div class="stat-item">Access Mode: <strong>DIRECT DOWNLOAD</strong></div>
+      </div>
+
+      <div id="galleryGrid" class="gallery-grid">
+        <!-- Dynamically rendered media cards -->
+      </div>
+
+      <div id="emptyGalleryState" class="empty-gallery-state hidden">
+        <div style="font-size: 32px; margin-bottom: 8px;">📭</div>
+        <div>No media uploads archived in this vault yet.</div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Fullscreen Lightbox Modal -->
+  <div id="galleryLightbox" class="gallery-lightbox hidden">
+    <div class="lightbox-header">
+      <span id="lightboxFileName" class="lightbox-title">image.jpg</span>
+      <button id="lightboxCloseBtn" class="lightbox-close-btn" title="Close preview (Esc)">✕</button>
+    </div>
+    <div class="lightbox-stage">
+      <img id="lightboxImage" src="" alt="Full quality preview" />
+    </div>
+    <div class="lightbox-footer">
+      <a id="lightboxDownloadBtn" href="#" class="gallery-download-btn" style="width: auto; padding: 0.55rem 1.25rem; font-size: 14px;" download>
+        📥 Download Full Quality
+      </a>
+      <button id="lightboxCloseBtn2" class="btn-vault-action">Close</button>
+    </div>
+  </div>
+
+  <script type="module" src="/js/gallery.js"></script>
+</body>
+</html>

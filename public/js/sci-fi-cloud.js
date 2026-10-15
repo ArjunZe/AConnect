@@ -8,20 +8,6 @@
  * - Capped Device Pixel Ratio (DPR <= 1.75) for modern high-refresh OLED devices
  */
 
-export function downloadImageFile(url, fileName = 'image.jpg') {
-  if (!url) return;
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = fileName || 'image.jpg';
-  document.body.appendChild(a);
-  a.click();
-  setTimeout(() => {
-    try {
-      document.body.removeChild(a);
-    } catch (_) {}
-  }, 100);
-}
-
 const NEON_PALETTES = [
   { name: 'Cyan', main: '#00f3ff', glow: 'rgba(0, 243, 255, 0.5)' },
   { name: 'Magenta', main: '#ff007f', glow: 'rgba(255, 0, 127, 0.5)' },
@@ -96,8 +82,6 @@ export class SciFiCloudEngine {
     this.inspectImageWrap = document.getElementById('inspectImageWrap');
     this.inspectImageContainer = document.getElementById('inspectImageContainer');
     this.inspectImage = document.getElementById('inspectImage');
-    this.imageLongPressOverlay = document.getElementById('imageLongPressOverlay');
-    this.downloadFullImageBtn = document.getElementById('downloadFullImageBtn');
     this.inspectReactions = document.getElementById('inspectReactions');
     this.closeInspectBtn = document.getElementById('closeInspectBtn');
 
@@ -305,99 +289,9 @@ export class SciFiCloudEngine {
         this.inspectCard.classList.add('hidden');
         if (this.inspectImage) {
           this.inspectImage.src = '';
-          this.inspectImage.classList.remove('pressing');
-        }
-        if (this.imageLongPressOverlay) {
-          this.imageLongPressOverlay.classList.add('hidden');
+          this.inspectImage.classList.remove('loading-full');
         }
       });
-    }
-
-    if (this.downloadFullImageBtn) {
-      this.downloadFullImageBtn.addEventListener('click', () => {
-        const url = this.inspectImageWrap?.dataset.downloadUrl || this.inspectImage?.src;
-        const name = this.inspectImageWrap?.dataset.fileName || 'image.jpg';
-        if (url) {
-          downloadImageFile(url, name);
-        }
-      });
-    }
-
-    if (this.inspectImage) {
-      let pressTimer = null;
-      let startX = 0;
-      let startY = 0;
-
-      const startPress = (x, y) => {
-        startX = x;
-        startY = y;
-        this.inspectImage.classList.add('pressing');
-        if (this.imageLongPressOverlay) {
-          this.imageLongPressOverlay.classList.remove('hidden');
-        }
-
-        pressTimer = setTimeout(() => {
-          if (navigator.vibrate) {
-            try { navigator.vibrate(40); } catch (_) {}
-          }
-          const url = this.inspectImageWrap?.dataset.downloadUrl || this.inspectImage?.src;
-          const name = this.inspectImageWrap?.dataset.fileName || 'image.jpg';
-          if (url) {
-            downloadImageFile(url, name);
-          }
-          setTimeout(() => cancelPress(), 250);
-        }, 400);
-      };
-
-      const cancelPress = () => {
-        if (pressTimer) {
-          clearTimeout(pressTimer);
-          pressTimer = null;
-        }
-        if (this.inspectImage) {
-          this.inspectImage.classList.remove('pressing');
-        }
-        if (this.imageLongPressOverlay) {
-          this.imageLongPressOverlay.classList.add('hidden');
-        }
-      };
-
-      this.inspectImage.addEventListener('touchstart', (e) => {
-        if (e.touches.length === 1) {
-          startPress(e.touches[0].clientX, e.touches[0].clientY);
-        }
-      }, { passive: true });
-
-      this.inspectImage.addEventListener('touchmove', (e) => {
-        if (pressTimer && e.touches.length === 1) {
-          const moveX = e.touches[0].clientX;
-          const moveY = e.touches[0].clientY;
-          if (Math.hypot(moveX - startX, moveY - startY) > 10) {
-            cancelPress();
-          }
-        }
-      }, { passive: true });
-
-      this.inspectImage.addEventListener('touchend', () => cancelPress(), { passive: true });
-      this.inspectImage.addEventListener('touchcancel', () => cancelPress(), { passive: true });
-
-      this.inspectImage.addEventListener('mousedown', (e) => {
-        if (e.button === 0) {
-          startPress(e.clientX, e.clientY);
-        }
-      });
-
-      this.inspectImage.addEventListener('mousemove', (e) => {
-        if (pressTimer) {
-          if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
-            cancelPress();
-          }
-        }
-      });
-
-      this.inspectImage.addEventListener('mouseup', () => cancelPress());
-      this.inspectImage.addEventListener('mouseleave', () => cancelPress());
-      this.inspectImage.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
     document.querySelectorAll('.inspect-react-btn').forEach((btn) => {
@@ -432,6 +326,7 @@ export class SciFiCloudEngine {
     }
     if (this.inspectImage) {
       this.inspectImage.src = '';
+      this.inspectImage.classList.remove('loading-full');
     }
     if (this.emptyNotice) this.emptyNotice.style.display = 'flex';
     this.requestRender();
@@ -1000,23 +895,32 @@ export class SciFiCloudEngine {
     }
 
     const isImage = msg.type === 'image';
-    const imageSrc = msg.imageUrl || msg.imageData;
+    const fullUrl = msg.imageUrl || msg.imageData;
+    const thumbUrl = msg.thumbUrl || msg.thumbData || fullUrl;
 
-    if (isImage && imageSrc) {
+    if (isImage && (thumbUrl || fullUrl)) {
       if (this.inspectImage) {
-        this.inspectImage.src = imageSrc;
+        // 1. Immediately show thumbnail!
+        this.inspectImage.src = thumbUrl || fullUrl;
+
+        // 2. If thumbnail is distinct from fullUrl, load full image in background and swap
+        if (fullUrl && fullUrl !== thumbUrl) {
+          this.inspectImage.classList.add('loading-full');
+          const preloader = new Image();
+          preloader.src = fullUrl;
+          preloader.onload = () => {
+            if (this.inspectCard?.dataset.messageId === msg.id && this.inspectImage) {
+              this.inspectImage.src = fullUrl;
+              this.inspectImage.classList.remove('loading-full');
+            }
+          };
+        } else {
+          this.inspectImage.classList.remove('loading-full');
+        }
       }
-      const downloadTarget = msg.downloadUrl || msg.imageUrl || msg.imageData;
-      const fileName = msg.fileName || 'image.jpg';
 
       if (this.inspectImageWrap) {
-        this.inspectImageWrap.dataset.downloadUrl = downloadTarget;
-        this.inspectImageWrap.dataset.fileName = fileName;
         this.inspectImageWrap.classList.remove('hidden');
-      }
-
-      if (this.downloadFullImageBtn) {
-        this.downloadFullImageBtn.textContent = 'Download';
       }
     } else {
       if (this.inspectImageWrap) {
@@ -1024,6 +928,7 @@ export class SciFiCloudEngine {
       }
       if (this.inspectImage) {
         this.inspectImage.src = '';
+        this.inspectImage.classList.remove('loading-full');
       }
     }
 

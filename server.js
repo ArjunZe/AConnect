@@ -28,6 +28,32 @@ if (!fs.existsSync(UPLOADS_DIR)) {
   fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 }
 
+const GALLERY_MANIFEST_PATH = path.join(UPLOADS_DIR, 'gallery-manifest.json');
+
+function getGalleryManifest() {
+  try {
+    if (fs.existsSync(GALLERY_MANIFEST_PATH)) {
+      const data = fs.readFileSync(GALLERY_MANIFEST_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading gallery manifest:', e);
+  }
+  return [];
+}
+
+function addToGalleryManifest(entry) {
+  try {
+    const list = getGalleryManifest();
+    const filtered = list.filter((item) => item.imageId !== entry.imageId);
+    filtered.unshift(entry);
+    fs.writeFileSync(GALLERY_MANIFEST_PATH, JSON.stringify(filtered.slice(0, 300), null, 2));
+  } catch (e) {
+    console.warn('Error writing gallery manifest:', e);
+  }
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '2mb' }));
@@ -77,6 +103,17 @@ app.post('/api/upload', (req, res) => {
     const imageUrl = `/uploads/${savedFileName}`;
     const downloadUrl = `/api/images/${imageId}/download?name=${encodeURIComponent(rawFileName)}`;
 
+    addToGalleryManifest({
+      imageId,
+      fileName: rawFileName,
+      imageUrl,
+      thumbUrl: imageUrl,
+      downloadUrl,
+      fileSize: bytesWritten,
+      mimeType: contentType,
+      timestamp: new Date().toISOString()
+    });
+
     res.json({
       ok: true,
       imageId,
@@ -102,7 +139,7 @@ app.get('/api/images/:id/download', (req, res) => {
 
   try {
     const files = fs.readdirSync(UPLOADS_DIR);
-    const targetFile = files.find((f) => f.startsWith(id));
+    const targetFile = files.find((f) => f.startsWith(id) && !f.includes('_thumb'));
     if (!targetFile) {
       return res.status(404).send('Image not found');
     }
@@ -112,6 +149,43 @@ app.get('/api/images/:id/download', (req, res) => {
   } catch (err) {
     res.status(500).send('Error locating file');
   }
+});
+
+// Secure Gallery API: verify room/vault password before revealing media
+app.post('/api/gallery/images', (req, res) => {
+  const typedPass = String(req.body?.password || req.headers['x-gallery-pass'] || '').trim();
+
+  let isAuthorized = (typedPass === DEFAULT_ROOM_PASSWORD);
+  if (!isAuthorized) {
+    for (const room of rooms.values()) {
+      if (room.password && room.password === typedPass) {
+        isAuthorized = true;
+        break;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
+    return res.status(401).json({
+      ok: false,
+      error: 'Access denied: Invalid security key / password.'
+    });
+  }
+
+  const images = getGalleryManifest();
+  res.json({
+    ok: true,
+    images
+  });
+});
+
+// Gallery pages
+app.get('/gallery', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'gallery.html'));
+});
+
+app.get('/gallery.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'gallery.html'));
 });
 
 // Serve chat.html as default root page
@@ -890,6 +964,26 @@ chatNamespace.on('connection', (socket) => {
       }
     }
 
+    const thumbData = typeof payload?.thumbData === 'string' && payload.thumbData.startsWith('data:image/') ? payload.thumbData : '';
+    let thumbUrl = '';
+    if (thumbData && imageId) {
+      try {
+        const base64Data = thumbData.replace(/^data:image\/\w+;base64,/, '');
+        const thumbFileName = `${imageId}_thumb.jpg`;
+        fs.writeFileSync(path.join(UPLOADS_DIR, thumbFileName), Buffer.from(base64Data, 'base64'));
+        thumbUrl = `/uploads/${thumbFileName}`;
+
+        const list = getGalleryManifest();
+        const item = list.find((m) => m.imageId === imageId);
+        if (item) {
+          item.thumbUrl = thumbUrl;
+          fs.writeFileSync(GALLERY_MANIFEST_PATH, JSON.stringify(list, null, 2));
+        }
+      } catch (err) {
+        console.warn('Failed to save thumbnail on server:', err);
+      }
+    }
+
     room.messageCount += 1;
     const message = {
       id: `${socket.id}-${Date.now()}`,
@@ -901,6 +995,8 @@ chatNamespace.on('connection', (socket) => {
       type: 'image',
       imageId,
       imageUrl,
+      thumbUrl: thumbUrl || imageUrl,
+      thumbData,
       downloadUrl,
       fileName,
       fileSize,

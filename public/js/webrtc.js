@@ -19,11 +19,23 @@ const rtcConfig = {
   rtcpMuxPolicy: 'require'
 };
 
-export async function getUserMediaStream() {
+export async function getUserMediaStream(constraints = { audio: true, video: true }) {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+    return await navigator.mediaDevices.getUserMedia(constraints);
   } catch (error) {
-    throw new Error(`Unable to access media devices: ${error.message}`);
+    console.warn('[WebRTC] Preferred constraints failed, attempting basic fallback:', error);
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: { width: { ideal: 640 }, height: { ideal: 480 } }
+      });
+    } catch (fallbackError) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (audioErr) {
+        throw new Error(`Unable to access camera or microphone: ${error.message}`);
+      }
+    }
   }
 }
 
@@ -61,26 +73,35 @@ export async function getVideoOnlyStream() {
   }
 }
 
-export function createPeerConnection({ localStream, onIceCandidate, onTrack, onConnectionStateChange }) {
+export function createPeerConnection({
+  localStream,
+  onIceCandidate,
+  onTrack,
+  onConnectionStateChange,
+  enableAudio = true
+}) {
   const peer = new RTCPeerConnection(rtcConfig);
   peer._pendingCandidates = [];
 
   let hasVideoTrack = false;
+  let hasAudioTrack = false;
+
   if (localStream) {
     localStream.getTracks().forEach((track) => {
-      // If audio track somehow present in localStream, skip it
-      if (track.kind === 'audio' && !localStream.hasAudio) {
-        track.stop();
-        return;
-      }
-      if (track.kind === 'video') {
+      if (track.kind === 'audio') {
+        if (!enableAudio) {
+          return;
+        }
+        hasAudioTrack = true;
+        peer.addTrack(track, localStream);
+      } else if (track.kind === 'video') {
         hasVideoTrack = true;
         peer.addTrack(track, localStream);
       }
     });
   }
 
-  // Ensure peer is always ready to receive video even if local camera is unavailable or pending
+  // Ensure peer is always ready to receive video/audio even if local track is not attached yet
   if (!hasVideoTrack) {
     try {
       peer.addTransceiver('video', { direction: 'recvonly' });
@@ -88,9 +109,16 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
       console.warn('[WebRTC] Could not add recvonly video transceiver:', err);
     }
   }
+  if (!hasAudioTrack && enableAudio) {
+    try {
+      peer.addTransceiver('audio', { direction: 'recvonly' });
+    } catch (err) {
+      console.warn('[WebRTC] Could not add recvonly audio transceiver:', err);
+    }
+  }
 
   peer.onicecandidate = (event) => {
-    if (event.candidate && event.candidate.candidate && onIceCandidate) {
+    if (event.candidate && onIceCandidate) {
       onIceCandidate(event.candidate);
     }
   };
@@ -103,11 +131,13 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
         stream.addTrack(event.track);
       }
     }
-    // Guarantee silent video: stop and mute any incoming audio tracks
-    stream.getAudioTracks().forEach((track) => {
-      track.enabled = false;
-      track.stop();
-    });
+    // Only mute audio if explicitly a silent video connection
+    if (!enableAudio) {
+      stream.getAudioTracks().forEach((track) => {
+        track.enabled = false;
+        track.stop();
+      });
+    }
     if (onTrack) {
       onTrack(stream, event.track);
     }
@@ -122,10 +152,13 @@ export function createPeerConnection({ localStream, onIceCandidate, onTrack, onC
   return peer;
 }
 
-export async function createOffer(peer) {
+export async function createOffer(peer, options = {}) {
+  const offerToReceiveAudio = options.offerToReceiveAudio !== undefined ? Boolean(options.offerToReceiveAudio) : true;
+  const offerToReceiveVideo = options.offerToReceiveVideo !== undefined ? Boolean(options.offerToReceiveVideo) : true;
+
   const offer = await peer.createOffer({
-    offerToReceiveVideo: true,
-    offerToReceiveAudio: false
+    offerToReceiveVideo,
+    offerToReceiveAudio
   });
   await peer.setLocalDescription(offer);
   return {
@@ -153,11 +186,26 @@ export async function flushPendingCandidates(peer) {
 }
 
 export async function handleOffer(peer, offer) {
+  const isCollision = peer.signalingState !== 'stable';
+  if (isCollision) {
+    if (!peer._isPolite) {
+      console.warn('[WebRTC] Impolite peer ignoring colliding offer');
+      return null;
+    }
+    console.log('[WebRTC] Polite peer rolling back local description for colliding offer');
+    try {
+      await peer.setLocalDescription({ type: 'rollback' });
+    } catch (err) {
+      console.warn('[WebRTC] Rollback error:', err);
+    }
+  }
+
   await peer.setRemoteDescription(new RTCSessionDescription({
     type: offer.type || 'offer',
     sdp: offer.sdp
   }));
   await flushPendingCandidates(peer);
+
   const answer = await peer.createAnswer();
   await peer.setLocalDescription(answer);
   return {
@@ -167,6 +215,10 @@ export async function handleOffer(peer, offer) {
 }
 
 export async function handleAnswer(peer, answer) {
+  if (peer.signalingState !== 'have-local-offer') {
+    console.warn(`[WebRTC] Ignoring answer in unexpected state: ${peer.signalingState}`);
+    return;
+  }
   await peer.setRemoteDescription(new RTCSessionDescription({
     type: answer.type || 'answer',
     sdp: answer.sdp
@@ -175,35 +227,36 @@ export async function handleAnswer(peer, answer) {
 }
 
 export async function handleIceCandidate(peer, candidate) {
-  if (!candidate || !candidate.candidate) return;
+  if (!candidate) return;
+  const candPayload = candidate.candidate !== undefined ? candidate : { candidate };
+  if (!candPayload.candidate) return;
+
   if (!peer.remoteDescription || !peer.remoteDescription.type) {
     if (!peer._pendingCandidates) peer._pendingCandidates = [];
-    peer._pendingCandidates.push(candidate);
+    peer._pendingCandidates.push(candPayload);
     return;
   }
   try {
-    await peer.addIceCandidate(candidate);
+    await peer.addIceCandidate(new RTCIceCandidate(candPayload));
   } catch (err) {
-    try {
-      await peer.addIceCandidate(new RTCIceCandidate(candidate));
-    } catch (e) {
-      console.warn('Error adding ICE candidate:', e);
-    }
+    console.warn('[WebRTC] Error adding ICE candidate:', err);
   }
 }
 
 export function addRemoteStream(stream, peerId, videoGrid) {
-  const existing = document.getElementById(`remote-${peerId}`);
-  if (existing) {
-    existing.srcObject = stream;
-    return existing;
+  let video = document.getElementById(`remote-${peerId}`);
+  if (!video) {
+    video = document.createElement('video');
+    video.id = `remote-${peerId}`;
+    video.autoplay = true;
+    video.playsInline = true;
+    videoGrid.appendChild(video);
   }
-  const video = document.createElement('video');
-  video.id = `remote-${peerId}`;
-  video.autoplay = true;
-  video.playsInline = true;
   video.srcObject = stream;
-  videoGrid.appendChild(video);
+  video.muted = false; // ensure remote audio can be heard
+  video.play().catch((err) => {
+    console.warn('[WebRTC] Remote video play error:', err);
+  });
   return video;
 }
 

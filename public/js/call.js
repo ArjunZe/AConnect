@@ -38,6 +38,8 @@ copyRoomBtn.addEventListener('click', async () => {
 async function setupLocalMedia() {
   localStream = await getUserMediaStream();
   localVideo.srcObject = localStream;
+  localVideo.muted = true;
+  localVideo.play().catch(() => {});
 }
 
 function renderParticipantsList() {
@@ -53,25 +55,64 @@ function updateWaitingState() {
   waitingState.classList.toggle('hidden', peers.size > 0);
 }
 
-async function initPeer(targetPeerId, initiator = true) {
-  if (peers.size >= 4 || peers.has(targetPeerId)) return;
+async function initPeer(targetPeerId, initiator = false) {
+  if (peers.size >= 4) return null;
+  if (peers.has(targetPeerId)) return peers.get(targetPeerId);
 
   const peer = createPeerConnection({
     localStream,
-    onIceCandidate: (candidate) => socket.emit('webrtc-ice-candidate', { roomId: roomCode, target: targetPeerId, candidate }),
-    onTrack: (stream) => addRemoteStream(stream, targetPeerId, videoGrid)
+    enableAudio: true,
+    onIceCandidate: (candidate) => {
+      socket.emit('webrtc-ice-candidate', {
+        roomId: roomCode,
+        target: targetPeerId,
+        candidate: {
+          candidate: candidate.candidate,
+          sdpMid: candidate.sdpMid,
+          sdpMLineIndex: candidate.sdpMLineIndex
+        }
+      });
+    },
+    onTrack: (stream) => {
+      addRemoteStream(stream, targetPeerId, videoGrid);
+      updateWaitingState();
+    },
+    onConnectionStateChange: (state) => {
+      console.log(`[WebRTC Call] Peer ${targetPeerId} state:`, state);
+      if (state === 'connected') {
+        updateWaitingState();
+      } else if (state === 'failed') {
+        console.warn(`[WebRTC Call] Peer ${targetPeerId} connection failed, attempting restart...`);
+        if (peer.restartIce) {
+          try {
+            peer.restartIce();
+            if (initiator || peer._isPolite) {
+              createOffer(peer, { offerToReceiveAudio: true, offerToReceiveVideo: true }).then((offer) => {
+                socket.emit('webrtc-offer', { roomId: roomCode, target: targetPeerId, offer });
+              }).catch(() => {});
+            }
+          } catch (_) {}
+        }
+      }
+    }
   });
 
+  peer._isPolite = socket.id < targetPeerId;
   peers.set(targetPeerId, peer);
   participants.set(targetPeerId, { name: `Anon-${targetPeerId.slice(0, 4)}`, muted: false });
   renderParticipantsList();
 
   if (initiator) {
-    const offer = await createOffer(peer);
-    socket.emit('webrtc-offer', { roomId: roomCode, target: targetPeerId, offer });
+    try {
+      const offer = await createOffer(peer, { offerToReceiveAudio: true, offerToReceiveVideo: true });
+      socket.emit('webrtc-offer', { roomId: roomCode, target: targetPeerId, offer });
+    } catch (err) {
+      console.error('[WebRTC Call] Create offer error:', err);
+    }
   }
 
   updateWaitingState();
+  return peer;
 }
 
 joinCallBtn.addEventListener('click', async () => {
@@ -86,14 +127,15 @@ joinCallBtn.addEventListener('click', async () => {
 });
 
 socket.on('call-room-joined', async ({ participants: existing }) => {
+  // As newcomer, initiate offer to each existing participant
   for (const participantId of existing) {
     await initPeer(participantId, true);
   }
 });
 
 socket.on('peer-joined', async ({ peerId }) => {
-  await initPeer(peerId, true);
-  socket.emit('call-request', { roomId: roomCode, caller: socket.id });
+  // Existing participant sets up peer connection as non-initiator and waits for offer
+  await initPeer(peerId, false);
 });
 
 socket.on('peer-left', ({ peerId }) => {
@@ -104,20 +146,28 @@ socket.on('peer-left', ({ peerId }) => {
 });
 
 socket.on('webrtc-offer', async ({ from, offer }) => {
-  if (!peers.has(from)) await initPeer(from, false);
-  const peer = peers.get(from);
+  let peer = peers.get(from);
+  if (!peer) {
+    peer = await initPeer(from, false);
+  }
   const answer = await handleOffer(peer, offer);
-  socket.emit('webrtc-answer', { roomId: roomCode, target: from, answer });
+  if (answer) {
+    socket.emit('webrtc-answer', { roomId: roomCode, target: from, answer });
+  }
 });
 
 socket.on('webrtc-answer', async ({ from, answer }) => {
   const peer = peers.get(from);
-  if (peer) await handleAnswer(peer, answer);
+  if (peer) {
+    await handleAnswer(peer, answer);
+  }
 });
 
 socket.on('webrtc-ice-candidate', async ({ from, candidate }) => {
   const peer = peers.get(from);
-  if (peer) await handleIceCandidate(peer, candidate);
+  if (peer) {
+    await handleIceCandidate(peer, candidate);
+  }
 });
 
 socket.on('mute-toggle', ({ peerId, muted }) => {

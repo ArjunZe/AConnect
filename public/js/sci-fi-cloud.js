@@ -1,3 +1,5 @@
+import { formatBytes } from './utils.js';
+
 /**
  * Sci-Fi Quantum Holographic Message Cloud Engine for AnonConnect
  * Optimizations:
@@ -7,6 +9,32 @@
  * - Chrono Flow touch & wheel scrolling with momentum & culling
  * - Capped Device Pixel Ratio (DPR <= 1.75) for modern high-refresh OLED devices
  */
+
+export async function downloadImageFile(url, fileName = 'image.jpg') {
+  if (!url) return;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const blobUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = blobUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+  } catch (err) {
+    console.warn('[Download] Direct blob download failed, falling back to direct anchor link:', err);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.target = '_blank';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+}
 
 const NEON_PALETTES = [
   { name: 'Cyan', main: '#00f3ff', glow: 'rgba(0, 243, 255, 0.5)' },
@@ -80,7 +108,10 @@ export class SciFiCloudEngine {
     this.inspectTime = document.getElementById('inspectTime');
     this.inspectText = document.getElementById('inspectText');
     this.inspectImageWrap = document.getElementById('inspectImageWrap');
+    this.inspectImageContainer = document.getElementById('inspectImageContainer');
     this.inspectImage = document.getElementById('inspectImage');
+    this.imageLongPressOverlay = document.getElementById('imageLongPressOverlay');
+    this.downloadFullImageBtn = document.getElementById('downloadFullImageBtn');
     this.inspectReactions = document.getElementById('inspectReactions');
     this.closeInspectBtn = document.getElementById('closeInspectBtn');
 
@@ -286,7 +317,109 @@ export class SciFiCloudEngine {
     if (this.closeInspectBtn) {
       this.closeInspectBtn.addEventListener('click', () => {
         this.inspectCard.classList.add('hidden');
+        if (this.inspectImage) {
+          this.inspectImage.src = '';
+          this.inspectImage.classList.remove('pressing');
+        }
+        if (this.imageLongPressOverlay) {
+          this.imageLongPressOverlay.classList.add('hidden');
+        }
       });
+    }
+
+    if (this.downloadFullImageBtn) {
+      this.downloadFullImageBtn.addEventListener('click', () => {
+        const url = this.inspectImageWrap?.dataset.downloadUrl || this.inspectImage?.src;
+        const name = this.inspectImageWrap?.dataset.fileName || 'image.jpg';
+        if (url) {
+          downloadImageFile(url, name);
+        }
+      });
+    }
+
+    if (this.inspectImage) {
+      let pressTimer = null;
+      let startX = 0;
+      let startY = 0;
+
+      const startPress = (x, y) => {
+        startX = x;
+        startY = y;
+        this.inspectImage.classList.add('pressing');
+        if (this.imageLongPressOverlay) {
+          this.imageLongPressOverlay.classList.remove('hidden');
+          const span = this.imageLongPressOverlay.querySelector('span:last-child');
+          if (span) span.textContent = 'Hold to download...';
+        }
+
+        pressTimer = setTimeout(() => {
+          if (navigator.vibrate) {
+            try { navigator.vibrate(50); } catch (_) {}
+          }
+          const url = this.inspectImageWrap?.dataset.downloadUrl || this.inspectImage?.src;
+          const name = this.inspectImageWrap?.dataset.fileName || 'image.jpg';
+          if (url) {
+            downloadImageFile(url, name);
+          }
+          if (this.imageLongPressOverlay) {
+            const span = this.imageLongPressOverlay.querySelector('span:last-child');
+            if (span) span.textContent = 'Original file saved!';
+          }
+          setTimeout(() => cancelPress(), 800);
+        }, 550);
+      };
+
+      const cancelPress = () => {
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+        if (this.inspectImage) {
+          this.inspectImage.classList.remove('pressing');
+        }
+        if (this.imageLongPressOverlay) {
+          this.imageLongPressOverlay.classList.add('hidden');
+          const span = this.imageLongPressOverlay.querySelector('span:last-child');
+          if (span) span.textContent = 'Hold to download...';
+        }
+      };
+
+      this.inspectImage.addEventListener('touchstart', (e) => {
+        if (e.touches.length === 1) {
+          startPress(e.touches[0].clientX, e.touches[0].clientY);
+        }
+      }, { passive: true });
+
+      this.inspectImage.addEventListener('touchmove', (e) => {
+        if (pressTimer && e.touches.length === 1) {
+          const moveX = e.touches[0].clientX;
+          const moveY = e.touches[0].clientY;
+          if (Math.hypot(moveX - startX, moveY - startY) > 10) {
+            cancelPress();
+          }
+        }
+      }, { passive: true });
+
+      this.inspectImage.addEventListener('touchend', () => cancelPress(), { passive: true });
+      this.inspectImage.addEventListener('touchcancel', () => cancelPress(), { passive: true });
+
+      this.inspectImage.addEventListener('mousedown', (e) => {
+        if (e.button === 0) {
+          startPress(e.clientX, e.clientY);
+        }
+      });
+
+      this.inspectImage.addEventListener('mousemove', (e) => {
+        if (pressTimer) {
+          if (Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+            cancelPress();
+          }
+        }
+      });
+
+      this.inspectImage.addEventListener('mouseup', () => cancelPress());
+      this.inspectImage.addEventListener('mouseleave', () => cancelPress());
+      this.inspectImage.addEventListener('contextmenu', (e) => e.preventDefault());
     }
 
     document.querySelectorAll('.inspect-react-btn').forEach((btn) => {
@@ -316,6 +449,12 @@ export class SciFiCloudEngine {
     this.nodeStates.clear();
     this.chronoScrollY = 0;
     this.maxScrollY = 0;
+    if (this.inspectCard) {
+      this.inspectCard.classList.add('hidden');
+    }
+    if (this.inspectImage) {
+      this.inspectImage.src = '';
+    }
     if (this.emptyNotice) this.emptyNotice.style.display = 'flex';
     this.requestRender();
   }
@@ -882,11 +1021,33 @@ export class SciFiCloudEngine {
       this.inspectText.textContent = msg.text || (msg.type === 'image' ? '[Shared Hologram Image]' : '');
     }
 
-    if (msg.type === 'image' && msg.imageData) {
-      this.inspectImage.src = msg.imageData;
-      this.inspectImageWrap.classList.remove('hidden');
+    const isImage = msg.type === 'image';
+    const imageSrc = msg.imageUrl || msg.imageData;
+
+    if (isImage && imageSrc) {
+      if (this.inspectImage) {
+        this.inspectImage.src = imageSrc;
+      }
+      const downloadTarget = msg.downloadUrl || msg.imageUrl || msg.imageData;
+      const fileName = msg.fileName || 'image.jpg';
+
+      if (this.inspectImageWrap) {
+        this.inspectImageWrap.dataset.downloadUrl = downloadTarget;
+        this.inspectImageWrap.dataset.fileName = fileName;
+        this.inspectImageWrap.classList.remove('hidden');
+      }
+
+      if (this.downloadFullImageBtn) {
+        const sizeInfo = msg.fileSize ? ` (${formatBytes(msg.fileSize)})` : '';
+        this.downloadFullImageBtn.textContent = `📥 Download Full Quality${sizeInfo}`;
+      }
     } else {
-      this.inspectImageWrap.classList.add('hidden');
+      if (this.inspectImageWrap) {
+        this.inspectImageWrap.classList.add('hidden');
+      }
+      if (this.inspectImage) {
+        this.inspectImage.src = '';
+      }
     }
 
     this.renderInspectReactions(msg.reactions);

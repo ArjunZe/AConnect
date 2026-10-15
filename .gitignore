@@ -1,0 +1,6 @@
+node_modules/
+package-lock.json
+AConnect.zip
+.env
+public/uploads/*
+!public/uploads/.gitkeep

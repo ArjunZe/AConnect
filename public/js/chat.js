@@ -61,6 +61,14 @@ let mySocketId = '';
 let myUsername = localStorage.getItem('anon_username') || generateUsername();
 let pendingPasswords = new Map();
 
+export function updateTopCallButton() {
+  const topCallBtn = document.getElementById('topCallBtn');
+  if (topCallBtn) {
+    topCallBtn.href = `/call.html?room=${encodeURIComponent(currentRoom || 'Default')}`;
+  }
+}
+updateTopCallButton();
+
 localStorage.setItem('anon_username', myUsername);
 if (usernameDisplay) usernameDisplay.textContent = myUsername;
 
@@ -238,6 +246,7 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
     if (password) localStorage.setItem('aconnect_room_pass', password);
     currentRoom = roomName;
     window.currentRoomName = roomName;
+    updateTopCallButton();
     currentRoomNameEl.textContent = roomName;
     if (typingIndicator) typingIndicator.textContent = '';
 
@@ -507,23 +516,62 @@ if (fileInput) {
     const file = fileInput.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      alert('Image too large. Max 2MB.');
+    const maxBytes = 50 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      alert('Image exceeds maximum allowed size of 50MB.');
       fileInput.value = '';
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      socket.emit('send-file', { dataUrl: reader.result, caption: sanitizeMessage(messageInput.value).slice(0, 200) }, (response) => {
-        if (!response?.ok) {
-          alert(response?.error || 'Failed to send image.');
+    const rawCaption = sanitizeMessage(messageInput?.value || '').slice(0, 200);
+    if (messageInput) messageInput.value = '';
+    const selectedFile = file;
+    fileInput.value = '';
+
+    (async () => {
+      try {
+        const uploadRes = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': selectedFile.type || 'image/jpeg',
+            'X-File-Name': encodeURIComponent(selectedFile.name || 'image.jpg')
+          },
+          body: selectedFile
+        });
+
+        if (!uploadRes.ok) {
+          const errData = await uploadRes.json().catch(() => ({}));
+          throw new Error(errData.error || `Upload failed: HTTP ${uploadRes.status}`);
         }
-      });
-      messageInput.value = '';
-      fileInput.value = '';
-    };
-    reader.readAsDataURL(file);
+
+        const uploadData = await uploadRes.json();
+        if (!uploadData.ok) {
+          throw new Error(uploadData.error || 'Server rejected image upload.');
+        }
+
+        let encryptedCaption = '';
+        if (rawCaption) {
+          const roomPass = getActiveRoomPassword();
+          encryptedCaption = await encryptPayload(rawCaption, roomPass);
+        }
+
+        socket.emit('send-file', {
+          imageId: uploadData.imageId,
+          imageUrl: uploadData.imageUrl,
+          downloadUrl: uploadData.downloadUrl,
+          fileName: uploadData.fileName,
+          fileSize: uploadData.fileSize,
+          caption: encryptedCaption
+        }, (response) => {
+          if (!response?.ok) {
+            alert(response?.error || 'Failed to transmit image.');
+          }
+        });
+      } catch (err) {
+        console.error('[Upload error]', err);
+        alert(err.message || 'Image upload failed. Please try again.');
+      }
+    })();
   });
 
   fileInput.addEventListener('cancel', () => {
@@ -565,6 +613,7 @@ socket.on('room-joined', async (data) => {
   window.hasEnteredChat = true;
   currentRoom = data.room;
   window.currentRoomName = data.room;
+  updateTopCallButton();
   currentMessageTTL = data.messageTTL !== undefined ? Number(data.messageTTL) : 86400000;
 
   if (roomTTLSelectHeader) {

@@ -1,3 +1,4 @@
+const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const express = require('express');
@@ -18,9 +19,14 @@ const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 const DEFAULT_ROOM_PASSWORD = String(process.env.DEFAULT_ROOM_PASSWORD || 'turtle').trim();
 const ROOM_IDLE_DELETE_MS = 5 * 60 * 1000;
 const MAX_MESSAGE_HISTORY = 50;
-const MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024;
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 const MESSAGE_RATE_LIMIT_WINDOW = 60 * 1000;
 const MESSAGE_RATE_LIMIT_MAX = 30;
+
+const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: '*' }));
@@ -34,6 +40,80 @@ const httpLimiter = rateLimit({
 });
 app.use(httpLimiter);
 
+// Upload endpoint for camera & gallery images (up to 50MB)
+app.post('/api/upload', (req, res) => {
+  const contentType = (req.headers['content-type'] || 'image/jpeg').toLowerCase();
+  if (!contentType.startsWith('image/')) {
+    return res.status(400).json({ ok: false, error: 'Only image files are allowed.' });
+  }
+
+  const rawFileName = req.headers['x-file-name'] ? decodeURIComponent(req.headers['x-file-name']) : 'image.jpg';
+  const cleanExt = path.extname(rawFileName).toLowerCase().replace(/[^a-z0-9.]/g, '') ||
+    (contentType.includes('png') ? '.png' : (contentType.includes('webp') ? '.webp' : (contentType.includes('gif') ? '.gif' : '.jpg')));
+  const imageId = `img_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const savedFileName = `${imageId}${cleanExt}`;
+  const filePath = path.join(UPLOADS_DIR, savedFileName);
+
+  const writeStream = fs.createWriteStream(filePath);
+  let bytesWritten = 0;
+  const maxBytes = 50 * 1024 * 1024; // 50MB
+  let aborted = false;
+
+  req.on('data', (chunk) => {
+    bytesWritten += chunk.length;
+    if (bytesWritten > maxBytes && !aborted) {
+      aborted = true;
+      writeStream.destroy();
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      res.status(413).json({ ok: false, error: 'Image exceeds maximum allowed size of 50MB.' });
+      req.destroy();
+    }
+  });
+
+  req.pipe(writeStream);
+
+  writeStream.on('finish', () => {
+    if (aborted) return;
+    const imageUrl = `/uploads/${savedFileName}`;
+    const downloadUrl = `/api/images/${imageId}/download?name=${encodeURIComponent(rawFileName)}`;
+
+    res.json({
+      ok: true,
+      imageId,
+      imageUrl,
+      downloadUrl,
+      fileName: rawFileName,
+      fileSize: bytesWritten,
+      mimeType: contentType
+    });
+  });
+
+  writeStream.on('error', (err) => {
+    if (aborted) return;
+    console.error('Upload stream error:', err);
+    try { fs.unlinkSync(filePath); } catch (_) {}
+    res.status(500).json({ ok: false, error: 'Failed to save image file.' });
+  });
+});
+
+app.get('/api/images/:id/download', (req, res) => {
+  const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  if (!id) return res.status(400).send('Invalid image ID');
+
+  try {
+    const files = fs.readdirSync(UPLOADS_DIR);
+    const targetFile = files.find((f) => f.startsWith(id));
+    if (!targetFile) {
+      return res.status(404).send('Image not found');
+    }
+    const fullPath = path.join(UPLOADS_DIR, targetFile);
+    const downloadName = req.query.name ? decodeURIComponent(String(req.query.name)) : targetFile;
+    res.download(fullPath, downloadName);
+  } catch (err) {
+    res.status(500).send('Error locating file');
+  }
+});
+
 // Serve chat.html as default root page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'chat.html'));
@@ -45,7 +125,8 @@ const io = new Server(server, {
   cors: {
     origin: '*',
     methods: ['GET', 'POST']
-  }
+  },
+  maxHttpBufferSize: 50 * 1024 * 1024
 });
 
 const users = new Map(); // socketId -> { username, room, joinedAt }
@@ -790,15 +871,24 @@ chatNamespace.on('connection', (socket) => {
     const user = users.get(socket.id);
     if (!user || !user.room) return;
 
-    const imageData = normalizeBase64Image(payload?.dataUrl);
-    const caption = sanitizeText(payload?.caption || '', 200);
-    if (!imageData) {
-      callback?.({ ok: false, error: 'Only images up to 2MB are allowed.' });
-      return;
-    }
-
     const room = rooms.get(user.room);
     if (!room) return;
+
+    const caption = sanitizeText(payload?.caption || '', 200);
+    const imageUrl = typeof payload?.imageUrl === 'string' ? payload.imageUrl.slice(0, 300) : '';
+    const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.slice(0, 300) : '';
+    const imageId = typeof payload?.imageId === 'string' ? payload.imageId.slice(0, 100) : '';
+    const fileName = typeof payload?.fileName === 'string' ? sanitizeText(payload.fileName, 100) : 'image.jpg';
+    const fileSize = typeof payload?.fileSize === 'number' ? payload.fileSize : 0;
+    let imageData = null;
+
+    if (!imageUrl) {
+      imageData = normalizeBase64Image(payload?.dataUrl);
+      if (!imageData) {
+        callback?.({ ok: false, error: 'Valid image is required.' });
+        return;
+      }
+    }
 
     room.messageCount += 1;
     const message = {
@@ -809,6 +899,11 @@ chatNamespace.on('connection', (socket) => {
       socketId: socket.id,
       timestamp: new Date().toISOString(),
       type: 'image',
+      imageId,
+      imageUrl,
+      downloadUrl,
+      fileName,
+      fileSize,
       imageData,
       reactions: {}
     };

@@ -555,13 +555,115 @@
   overflow: hidden;
   border: 1px solid var(--border-bright);
   margin-bottom: 0.6rem;
+  background: rgba(8, 12, 22, 0.7);
 }
 
-.inspect-image-wrap img {
+.inspect-image-container {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000;
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.inspect-image-container img {
   max-width: 100%;
-  max-height: 220px;
+  max-height: 260px;
   display: block;
-  object-fit: cover;
+  object-fit: contain;
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.inspect-image-container img.pressing {
+  transform: scale(0.96);
+  filter: brightness(0.8);
+}
+
+.image-long-press-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(10, 16, 35, 0.78);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--accent-cyan);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  pointer-events: none;
+  animation: fadeInOverlay 0.15s ease;
+}
+
+.image-long-press-overlay.hidden {
+  display: none !important;
+}
+
+.long-press-spinner {
+  font-size: 26px;
+  animation: bounceDown 0.6s infinite alternate ease-in-out;
+}
+
+@keyframes fadeInOverlay {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes bounceDown {
+  from { transform: translateY(-4px); }
+  to { transform: translateY(4px); }
+}
+
+.inspect-image-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 0.55rem 0.65rem;
+  background: rgba(15, 23, 42, 0.65);
+  border-top: 1px solid var(--border);
+}
+
+.inspect-download-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  background: linear-gradient(135deg, rgba(0, 243, 255, 0.2), rgba(0, 150, 255, 0.25));
+  border: 1px solid var(--accent-cyan);
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.inspect-download-btn:hover {
+  background: linear-gradient(135deg, rgba(0, 243, 255, 0.35), rgba(0, 150, 255, 0.45));
+  box-shadow: 0 0 12px rgba(0, 243, 255, 0.4);
+}
+
+.inspect-download-btn:active {
+  transform: scale(0.98);
+}
+
+.inspect-image-hint {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.85;
 }
 
 .inspect-reactions {

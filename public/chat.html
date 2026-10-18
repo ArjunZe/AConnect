@@ -206,6 +206,20 @@
 
     <!-- Bottom Control Deck -->
     <footer class="chat-hud-dock">
+      <!-- Image Upload Progress Bar (Positioned above text input area) -->
+      <div id="uploadProgressDock" class="upload-progress-dock hidden">
+        <div class="upload-progress-info">
+          <div class="upload-progress-left">
+            <span class="upload-progress-icon">📷</span>
+            <span id="uploadProgressText" class="upload-progress-text">Uploading image...</span>
+          </div>
+          <span id="uploadProgressPercent" class="upload-progress-percent">0%</span>
+        </div>
+        <div class="upload-progress-track">
+          <div id="uploadProgressBar" class="upload-progress-bar" style="width: 0%;"></div>
+        </div>
+      </div>
+
       <form id="messageForm" class="dock-form">
         <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji Panel">😊</button>
         <button type="button" id="fileButton" class="dock-action-btn" title="Attach Image">📎</button>

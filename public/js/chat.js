@@ -32,6 +32,10 @@ const roomPasswordInput = document.getElementById('roomPasswordInput');
 const roomTTLSelect = document.getElementById('roomTTLSelect');
 const emojiPanel = document.getElementById('emojiPanel');
 const fileInput = document.getElementById('fileInput');
+const uploadProgressDock = document.getElementById('uploadProgressDock');
+const uploadProgressBar = document.getElementById('uploadProgressBar');
+const uploadProgressText = document.getElementById('uploadProgressText');
+const uploadProgressPercent = document.getElementById('uploadProgressPercent');
 
 // Live Video Elements
 const liveVideoBtn = document.getElementById('liveVideoBtn');
@@ -635,13 +639,19 @@ if (fileInput) {
       return;
     }
 
-    const rawCaption = sanitizeMessage(messageInput?.value || '').slice(0, 200);
     const selectedFile = file;
     fileInput.value = '';
 
-    if (messageInput) {
-      messageInput.value = `Uploading: 0% (${formatBytes(selectedFile.size)})...`;
-      messageInput.readOnly = true;
+    // Show floating progress bar above text input without blocking typing or sending
+    if (uploadProgressDock) {
+      uploadProgressDock.classList.remove('hidden');
+      if (uploadProgressBar) {
+        uploadProgressBar.style.width = '0%';
+        uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
+        uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
+      }
+      if (uploadProgressPercent) uploadProgressPercent.textContent = '0%';
+      if (uploadProgressText) uploadProgressText.textContent = `Uploading ${selectedFile.name} (${formatBytes(selectedFile.size)})...`;
     }
 
     (async () => {
@@ -651,29 +661,22 @@ if (fileInput) {
 
         // Upload starts immediately over the network
         const uploadData = await uploadFileWithProgress(selectedFile, ({ loaded, total, percent }) => {
-          if (messageInput) {
-            if (percent < 99) {
-              messageInput.value = `Uploading: ${formatBytes(loaded)} / ${formatBytes(total)} (${percent}%)`;
-            } else if (percent === 99) {
-              messageInput.value = `Saving on server (${formatBytes(total)})...`;
-            } else {
-              messageInput.value = 'Complete!';
+          if (uploadProgressDock) {
+            if (uploadProgressBar) uploadProgressBar.style.width = `${percent}%`;
+            if (uploadProgressPercent) uploadProgressPercent.textContent = `${percent}%`;
+            if (uploadProgressText) {
+              if (percent < 99) {
+                uploadProgressText.textContent = `Uploading ${selectedFile.name}: ${formatBytes(loaded)} / ${formatBytes(total)}`;
+              } else if (percent === 99) {
+                uploadProgressText.textContent = `Processing image on server (${formatBytes(total)})...`;
+              } else {
+                uploadProgressText.textContent = 'Upload complete! Sharing to room...';
+              }
             }
           }
         });
 
         const thumbData = await thumbPromise.catch(() => '');
-
-        if (messageInput) {
-          messageInput.value = '';
-          messageInput.readOnly = false;
-        }
-
-        let encryptedCaption = '';
-        if (rawCaption) {
-          const roomPass = getActiveRoomPassword();
-          encryptedCaption = await encryptPayload(rawCaption, roomPass);
-        }
 
         socket.emit('send-file', {
           imageId: uploadData.imageId,
@@ -682,17 +685,38 @@ if (fileInput) {
           thumbData: thumbData || '',
           fileName: uploadData.fileName,
           fileSize: uploadData.fileSize,
-          caption: encryptedCaption
+          caption: ''
         }, (response) => {
           if (!response?.ok) {
             alert(response?.error || 'Failed to transmit image.');
           }
         });
+
+        if (uploadProgressDock) {
+          if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+          if (uploadProgressPercent) uploadProgressPercent.textContent = '100%';
+          if (uploadProgressText) uploadProgressText.textContent = 'Image shared successfully!';
+          setTimeout(() => {
+            uploadProgressDock?.classList.add('hidden');
+            if (uploadProgressBar) uploadProgressBar.style.width = '0%';
+          }, 1800);
+        }
       } catch (err) {
         console.error('[Upload error]', err);
-        if (messageInput) {
-          messageInput.value = rawCaption;
-          messageInput.readOnly = false;
+        if (uploadProgressDock) {
+          if (uploadProgressText) uploadProgressText.textContent = `Upload failed: ${err.message || 'Error'}`;
+          if (uploadProgressBar) {
+            uploadProgressBar.style.background = '#ff4444';
+            uploadProgressBar.style.boxShadow = '0 0 10px rgba(255, 68, 68, 0.8)';
+          }
+          setTimeout(() => {
+            uploadProgressDock?.classList.add('hidden');
+            if (uploadProgressBar) {
+              uploadProgressBar.style.width = '0%';
+              uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
+              uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
+            }
+          }, 3500);
         }
         alert(err.message || 'Image upload failed. Please try again.');
       }

@@ -184,6 +184,7 @@ const hudViewSelect = document.getElementById('hudViewSelect');
 const hudNavSelect = document.getElementById('hudNavSelect');
 
 if (hudViewSelect) {
+  hudViewSelect.value = 'chrono';
   hudViewSelect.addEventListener('change', (e) => {
     const mode = e.target.value;
     cloudEngine.setViewMode(mode);
@@ -510,15 +511,38 @@ window.addEventListener('focus', () => {
   setTimeout(() => { window.isOpeningFilePicker = false; }, 300);
 });
 
-export function generateThumbnail(file, maxDimension = 320, quality = 0.55) {
-  return new Promise((resolve) => {
-    if (!file || !file.type.startsWith('image/')) {
-      resolve('');
-      return;
+export async function generateThumbnail(file, maxDimension = 320, quality = 0.55) {
+  if (!file || !file.type.startsWith('image/')) return '';
+
+  // 1. Try fast hardware-accelerated off-thread decode via createImageBitmap
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(file, {
+        resizeWidth: maxDimension,
+        resizeQuality: 'low'
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = bmp.width;
+      canvas.height = bmp.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(bmp, 0, 0);
+        bmp.close();
+        return canvas.toDataURL('image/jpeg', quality);
+      }
+      bmp.close();
+    } catch (e) {
+      console.warn('createImageBitmap failed, using fallback:', e);
     }
+  }
+
+  // 2. Fallback with a strict 2-second timeout so it never blocks or hangs
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(''), 2000);
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
     img.onload = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(objectUrl);
       let w = img.width;
       let h = img.height;
@@ -537,11 +561,15 @@ export function generateThumbnail(file, maxDimension = 320, quality = 0.55) {
       canvas.width = Math.max(1, w);
       canvas.height = Math.max(1, h);
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, w, h);
-      const thumbData = canvas.toDataURL('image/jpeg', quality);
-      resolve(thumbData);
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      } else {
+        resolve('');
+      }
     };
     img.onerror = () => {
+      clearTimeout(timer);
       URL.revokeObjectURL(objectUrl);
       resolve('');
     };
@@ -612,14 +640,16 @@ if (fileInput) {
     fileInput.value = '';
 
     if (messageInput) {
-      messageInput.value = `Preparing ${formatBytes(selectedFile.size)}...`;
+      messageInput.value = `Uploading: 0% (${formatBytes(selectedFile.size)})...`;
       messageInput.readOnly = true;
     }
 
     (async () => {
       try {
+        // Run thumbnail generation concurrently in background
         const thumbPromise = generateThumbnail(selectedFile, 320, 0.55);
 
+        // Upload starts immediately over the network
         const uploadData = await uploadFileWithProgress(selectedFile, ({ loaded, total, percent }) => {
           if (messageInput) {
             if (percent < 99) {
@@ -632,7 +662,7 @@ if (fileInput) {
           }
         });
 
-        const thumbData = await thumbPromise;
+        const thumbData = await thumbPromise.catch(() => '');
 
         if (messageInput) {
           messageInput.value = '';

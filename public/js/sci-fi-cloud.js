@@ -87,7 +87,7 @@ export class SciFiCloudEngine {
 
     this.messages = [];
     this.nodeStates = new Map(); // id -> { x, y, targetX, targetY, scale, alpha, pulse, width, height, baseX, baseY }
-    this.viewMode = 'orbit'; // 'orbit', 'chrono', 'heatmap'
+    this.viewMode = 'chrono'; // 'orbit', 'chrono', 'heatmap'
     this.messageTTL = 0;
     this.mySocketId = '';
     this.hoveredNodeId = null;

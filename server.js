@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const { pipeline, Transform } = require('stream');
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
@@ -48,7 +49,9 @@ function addToGalleryManifest(entry) {
     const list = getGalleryManifest();
     const filtered = list.filter((item) => item.imageId !== entry.imageId);
     filtered.unshift(entry);
-    fs.writeFileSync(GALLERY_MANIFEST_PATH, JSON.stringify(filtered.slice(0, 300), null, 2));
+    fs.writeFile(GALLERY_MANIFEST_PATH, JSON.stringify(filtered.slice(0, 300), null, 2), (err) => {
+      if (err) console.warn('Error writing gallery manifest:', err);
+    });
   } catch (e) {
     console.warn('Error writing gallery manifest:', e);
   }
@@ -66,7 +69,7 @@ const httpLimiter = rateLimit({
 });
 app.use(httpLimiter);
 
-// Upload endpoint for camera & gallery images (up to 50MB)
+// Upload endpoint for camera & gallery images (up to 50MB) - High-throughput stream pipeline
 app.post('/api/upload', (req, res) => {
   const contentType = (req.headers['content-type'] || 'image/jpeg').toLowerCase();
   if (!contentType.startsWith('image/')) {
@@ -80,26 +83,35 @@ app.post('/api/upload', (req, res) => {
   const savedFileName = `${imageId}${cleanExt}`;
   const filePath = path.join(UPLOADS_DIR, savedFileName);
 
-  const writeStream = fs.createWriteStream(filePath);
+  const writeStream = fs.createWriteStream(filePath, { highWaterMark: 1024 * 1024 });
   let bytesWritten = 0;
-  const maxBytes = 50 * 1024 * 1024; // 50MB
-  let aborted = false;
+  const maxBytes = MAX_FILE_SIZE_BYTES;
 
-  req.on('data', (chunk) => {
-    bytesWritten += chunk.length;
-    if (bytesWritten > maxBytes && !aborted) {
-      aborted = true;
-      writeStream.destroy();
-      try { fs.unlinkSync(filePath); } catch (_) {}
-      res.status(413).json({ ok: false, error: 'Image exceeds maximum allowed size of 50MB.' });
-      req.destroy();
+  const limiter = new Transform({
+    transform(chunk, encoding, callback) {
+      bytesWritten += chunk.length;
+      if (bytesWritten > maxBytes) {
+        const err = new Error('LIMIT_EXCEEDED');
+        err.code = 'LIMIT_EXCEEDED';
+        return callback(err);
+      }
+      callback(null, chunk);
     }
   });
 
-  req.pipe(writeStream);
+  pipeline(req, limiter, writeStream, (err) => {
+    if (err) {
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      if (!res.headersSent) {
+        if (err.code === 'LIMIT_EXCEEDED') {
+          return res.status(413).json({ ok: false, error: 'Image exceeds maximum allowed size of 50MB.' });
+        }
+        console.error('Upload stream error:', err);
+        return res.status(500).json({ ok: false, error: 'Failed to save image file.' });
+      }
+      return;
+    }
 
-  writeStream.on('finish', () => {
-    if (aborted) return;
     const imageUrl = `/uploads/${savedFileName}`;
     const downloadUrl = `/api/images/${imageId}/download?name=${encodeURIComponent(rawFileName)}`;
 
@@ -123,13 +135,6 @@ app.post('/api/upload', (req, res) => {
       fileSize: bytesWritten,
       mimeType: contentType
     });
-  });
-
-  writeStream.on('error', (err) => {
-    if (aborted) return;
-    console.error('Upload stream error:', err);
-    try { fs.unlinkSync(filePath); } catch (_) {}
-    res.status(500).json({ ok: false, error: 'Failed to save image file.' });
   });
 });
 
@@ -970,15 +975,17 @@ chatNamespace.on('connection', (socket) => {
       try {
         const base64Data = thumbData.replace(/^data:image\/\w+;base64,/, '');
         const thumbFileName = `${imageId}_thumb.jpg`;
-        fs.writeFileSync(path.join(UPLOADS_DIR, thumbFileName), Buffer.from(base64Data, 'base64'));
         thumbUrl = `/uploads/${thumbFileName}`;
-
-        const list = getGalleryManifest();
-        const item = list.find((m) => m.imageId === imageId);
-        if (item) {
-          item.thumbUrl = thumbUrl;
-          fs.writeFileSync(GALLERY_MANIFEST_PATH, JSON.stringify(list, null, 2));
-        }
+        fs.writeFile(path.join(UPLOADS_DIR, thumbFileName), Buffer.from(base64Data, 'base64'), (err) => {
+          if (!err) {
+            const list = getGalleryManifest();
+            const item = list.find((m) => m.imageId === imageId);
+            if (item) {
+              item.thumbUrl = thumbUrl;
+              fs.writeFile(GALLERY_MANIFEST_PATH, JSON.stringify(list, null, 2), () => {});
+            }
+          }
+        });
       } catch (err) {
         console.warn('Failed to save thumbnail on server:', err);
       }

@@ -51,7 +51,6 @@ async function authenticateAndLoad(password) {
     }
 
     activePassword = password;
-    sessionStorage.setItem('aconnect_gallery_auth', password);
     renderGallery(data.images || []);
     unlockUI();
   } catch (err) {
@@ -213,11 +212,8 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// Auto-authenticate if password exists in session or local storage
-const cachedPass = sessionStorage.getItem('aconnect_gallery_auth') || localStorage.getItem('aconnect_room_pass') || 'turtle';
-if (cachedPass) {
-  if (vaultPasswordInput) vaultPasswordInput.value = cachedPass;
-  authenticateAndLoad(cachedPass);
-} else {
-  vaultPasswordInput?.focus();
+// Ensure password input is completely empty on load
+if (vaultPasswordInput) {
+  vaultPasswordInput.value = '';
+  vaultPasswordInput.focus();
 }

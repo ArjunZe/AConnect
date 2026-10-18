@@ -31,8 +31,8 @@
       <h2 class="vault-auth-title">RESTRICTED MEDIA VAULT</h2>
       <p class="vault-auth-desc">Enter the group security key / room password to decrypt and access original full-quality media uploads.</p>
       
-      <form id="vaultAuthForm" style="display: flex; flex-direction: column; gap: 12px;">
-        <input type="password" id="vaultPasswordInput" class="vault-auth-input" placeholder="Security key / password..." autocomplete="current-password" autofocus />
+      <form id="vaultAuthForm" autocomplete="off" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="password" id="vaultPasswordInput" class="vault-auth-input" placeholder="Security key / password..." autocomplete="new-password" value="" autofocus />
         <div id="vaultAuthError" class="vault-error-banner hidden"></div>
         <button type="submit" id="vaultAuthSubmitBtn" class="btn-vault-action btn-vault-primary" style="justify-content: center; padding: 0.65rem;">
           🔓 Decrypt Vault ➔

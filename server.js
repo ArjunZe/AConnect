@@ -261,19 +261,28 @@ const CURATED_GIFS = [
   { id: 'mlvseq9yvZhba', title: 'Vibing Cat', tag: 'cat', previewUrl: 'https://media.giphy.com/media/mlvseq9yvZhba/200w.gif', url: 'https://media.giphy.com/media/mlvseq9yvZhba/giphy.gif' }
 ];
 
+app.get('/api/config/keys', (req, res) => {
+  res.json({
+    tenorApiKey: process.env.TENOR_API_KEY || '',
+    giphyApiKey: process.env.GIPHY_API_KEY || '',
+    klipyApiKey: process.env.KLIPY_API_KEY || 'bAq6J4tOAyDBvzAwuo3fUcDYIxkAvEYxMVXNEyaxggkau1iqsYXy3lGWvJeSSSQR'
+  });
+});
+
 app.get('/api/gifs', async (req, res) => {
-  const q = String(req.query.q || '').trim().toLowerCase();
-  const tag = String(req.query.tag || '').trim().toLowerCase();
+  const q = String(req.query.q || '').trim();
+  const tag = String(req.query.tag || '').trim();
   const limit = Math.min(parseInt(req.query.limit, 10) || 24, 50);
 
-  const apiKey = process.env.GIPHY_API_KEY;
-  if (apiKey) {
+  // 1. Giphy API (if key configured)
+  const giphyKey = process.env.GIPHY_API_KEY;
+  if (giphyKey) {
     try {
       const endpoint = q
-        ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}&limit=${limit}&rating=g`
+        ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(giphyKey)}&q=${encodeURIComponent(q)}&limit=${limit}&rating=g`
         : (tag && tag !== 'trending'
-          ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(tag)}&limit=${limit}&rating=g`
-          : `https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(apiKey)}&limit=${limit}&rating=g`);
+          ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(giphyKey)}&q=${encodeURIComponent(tag)}&limit=${limit}&rating=g`
+          : `https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(giphyKey)}&limit=${limit}&rating=g`);
 
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 4000);
@@ -284,28 +293,73 @@ app.get('/api/gifs', async (req, res) => {
         const json = await apiRes.json();
         if (Array.isArray(json?.data) && json.data.length > 0) {
           const liveGifs = json.data.map((item) => ({
-            id: item.id,
+            id: String(item.id),
             title: item.title || q || tag || 'GIF',
             previewUrl: item.images?.fixed_width_small?.url || item.images?.fixed_width?.url || item.images?.original?.url,
-            url: item.images?.original?.url || item.images?.downsized_medium?.url || item.images?.downsized?.url
+            url: item.images?.original?.url || item.images?.downsized_medium?.url || item.images?.downsized?.url,
+            width: Number(item.images?.fixed_width?.width || 200),
+            height: Number(item.images?.fixed_width?.height || 200)
           }));
           return res.json({ ok: true, gifs: liveGifs });
         }
       }
     } catch (err) {
-      console.warn('Giphy API live search failed, falling back to curated list:', err.message);
+      console.warn('Giphy live search failed:', err.message);
     }
   }
 
-  // Curated fallback
+  // 2. Klipy API (Live global search)
+  const klipyKey = process.env.KLIPY_API_KEY || 'bAq6J4tOAyDBvzAwuo3fUcDYIxkAvEYxMVXNEyaxggkau1iqsYXy3lGWvJeSSSQR';
+  if (klipyKey) {
+    try {
+      const klipyEndpoint = q
+        ? `https://api.klipy.com/api/v1/${klipyKey}/gifs/search?q=${encodeURIComponent(q)}&page=1&per_page=${limit}&format_filter=gif`
+        : (tag && tag !== 'trending'
+          ? `https://api.klipy.com/api/v1/${klipyKey}/gifs/search?q=${encodeURIComponent(tag)}&page=1&per_page=${limit}&format_filter=gif`
+          : `https://api.klipy.com/api/v1/${klipyKey}/gifs/trending?page=1&per_page=${limit}&format_filter=gif`);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const klipyRes = await fetch(klipyEndpoint, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (klipyRes.ok) {
+        const json = await klipyRes.json();
+        const items = json?.data?.data;
+        if (Array.isArray(items) && items.length > 0) {
+          const liveGifs = items.map((item) => {
+            const gifFile = item.file?.hd?.gif || item.file?.md?.gif || item.file?.sm?.gif;
+            const thumbFile = item.file?.sm?.gif || item.file?.md?.gif || gifFile;
+            return {
+              id: String(item.id || Math.random()),
+              title: item.title || q || tag || 'GIF',
+              previewUrl: thumbFile?.url || gifFile?.url,
+              url: gifFile?.url || thumbFile?.url,
+              width: Number(gifFile?.width || 200),
+              height: Number(gifFile?.height || 200)
+            };
+          }).filter((g) => g.url);
+          if (liveGifs.length > 0) {
+            return res.json({ ok: true, gifs: liveGifs });
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Klipy live search failed:', err.message);
+    }
+  }
+
+  // 3. Curated High-Availability Fallback
+  const qLower = q.toLowerCase();
+  const tagLower = tag.toLowerCase();
   let list = CURATED_GIFS;
-  if (q) {
-    list = CURATED_GIFS.filter((g) => g.title.toLowerCase().includes(q) || g.tag.toLowerCase().includes(q));
+  if (qLower) {
+    list = CURATED_GIFS.filter((g) => g.title.toLowerCase().includes(qLower) || g.tag.toLowerCase().includes(qLower));
     if (list.length === 0) {
       list = CURATED_GIFS.filter((g) => g.tag === 'trending' || g.tag === 'laugh');
     }
-  } else if (tag && tag !== 'trending') {
-    list = CURATED_GIFS.filter((g) => g.tag === tag);
+  } else if (tagLower && tagLower !== 'trending') {
+    list = CURATED_GIFS.filter((g) => g.tag === tagLower);
     if (list.length === 0) list = CURATED_GIFS;
   }
 
@@ -1188,16 +1242,28 @@ chatNamespace.on('connection', (socket) => {
       return;
     }
 
-    const user = users.get(socket.id);
-    if (!user || !user.room) return;
+    let user = users.get(socket.id);
+    const targetRoomName = (user?.room || payload?.room || 'Default').trim();
+    let room = rooms.get(targetRoomName);
+    if (!room) {
+      room = rooms.get('Default');
+    }
+    if (!room) {
+      callback?.({ ok: false, error: 'Target room does not exist.' });
+      return;
+    }
 
-    const room = rooms.get(user.room);
-    if (!room) return;
+    const senderUsername = user?.username || payload?.username || 'Anon';
+    if (!user || !user.room) {
+      socket.join(room.name || targetRoomName);
+      user = { username: senderUsername, room: targetRoomName, joinedAt: new Date().toISOString() };
+      users.set(socket.id, user);
+    }
 
     const caption = sanitizeText(payload?.caption || '', 200);
     const imageUrl = typeof payload?.imageUrl === 'string' ? payload.imageUrl.slice(0, 1000) : '';
     const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.slice(0, 1000) : '';
-    const isGif = Boolean(payload?.isGif || (imageUrl && (imageUrl.includes('.gif') || imageUrl.includes('giphy.com'))));
+    const isGif = Boolean(payload?.isGif || (imageUrl && (imageUrl.includes('.gif') || imageUrl.includes('giphy.com') || imageUrl.includes('klipy.com'))));
     const imageId = typeof payload?.imageId === 'string' ? payload.imageId.slice(0, 100) : '';
     const fileName = typeof payload?.fileName === 'string' ? sanitizeText(payload.fileName, 100) : (isGif ? 'reaction.gif' : 'image.jpg');
     const fileSize = typeof payload?.fileSize === 'number' ? payload.fileSize : 0;
@@ -1236,9 +1302,9 @@ chatNamespace.on('connection', (socket) => {
     room.messageCount += 1;
     const message = {
       id: `${socket.id}-${Date.now()}`,
-      room: user.room,
+      room: targetRoomName,
       text: caption,
-      username: user.username,
+      username: senderUsername,
       socketId: socket.id,
       timestamp: new Date().toISOString(),
       type: 'image',
@@ -1254,8 +1320,8 @@ chatNamespace.on('connection', (socket) => {
       reactions: {}
     };
 
-    pushRoomMessage(user.room, message);
-    chatNamespace.to(user.room).emit('new-message', { ...message, reactions: [] });
+    pushRoomMessage(targetRoomName, message);
+    chatNamespace.to(targetRoomName).emit('new-message', { ...message, reactions: [] });
     emitRoomList(chatNamespace);
     callback?.({ ok: true, messageId: message.id });
   });

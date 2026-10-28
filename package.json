@@ -6,7 +6,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "build:picker": "esbuild src/picker-bundle.jsx --bundle --format=iife --outfile=public/js/emoji-gif-bundle.js --minify && mv -f public/js/emoji-gif-bundle.css public/css/emoji-gif-bundle.css"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -18,7 +19,12 @@
     "socket.io": "^4.6.1"
   },
   "devDependencies": {
-    "nodemon": "^3.0.1"
+    "emoji-picker-react": "^5.1.4",
+    "esbuild": "^0.28.2",
+    "gif-picker-react": "^2.0.0",
+    "nodemon": "^3.0.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "engines": {
     "node": ">=18"

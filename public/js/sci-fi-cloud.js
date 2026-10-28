@@ -333,14 +333,28 @@ export class SciFiCloudEngine {
   }
 
   setMessages(messagesList, messageTTL = 0, mySocketId = '') {
+    // Retain any recent optimistic local messages (e.g. taken with camera right before reconnect)
+    const recentLocal = this.messages.filter((m) =>
+      (m.id?.startsWith('img-') || m.id?.startsWith('gif-')) &&
+      (Date.now() - new Date(m.timestamp).getTime() < 25000)
+    );
+
     this.clear();
     this.messageTTL = messageTTL;
     this.mySocketId = mySocketId;
-    
+
+    const combined = [...messagesList.filter((m) => m.type !== 'system')];
+    recentLocal.forEach((local) => {
+      const exists = combined.some((c) => c.id === local.id || (local.imageId && c.imageId === local.imageId));
+      if (!exists) {
+        combined.push(local);
+      }
+    });
+
     // Sort chronologically ascending (oldest first, newest last)
-    this.messages = messagesList.filter(m => m.type !== 'system').sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
-    
-    this.messages.forEach(msg => this.initNodeState(msg));
+    this.messages = combined.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+
+    this.messages.forEach((msg) => this.initNodeState(msg));
     this.recalculateTargets();
     this.requestRender();
   }
@@ -348,7 +362,20 @@ export class SciFiCloudEngine {
   addMessage(data) {
     if (data.type === 'system') return;
     if (this.messages.some((m) => m.id === data.id)) return;
-    
+
+    // Check if matching optimistic message by imageId exists
+    if (data.imageId && this.messages.some((m) => m.imageId === data.imageId)) {
+      const existing = this.messages.find((m) => m.imageId === data.imageId);
+      if (existing) {
+        existing.id = data.id || existing.id;
+        if (data.imageUrl) existing.imageUrl = data.imageUrl;
+        if (data.thumbUrl) existing.thumbUrl = data.thumbUrl;
+        if (data.downloadUrl) existing.downloadUrl = data.downloadUrl;
+        this.requestRender();
+      }
+      return;
+    }
+
     this.messages.push(data);
     this.initNodeState(data, true); // brand new message triggers pulse effect
     this.recalculateTargets();
@@ -710,7 +737,9 @@ export class SciFiCloudEngine {
     const timeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
     const badgeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
 
-    const rawText = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? 'Image' : ''));
+    const rawText = msg.text
+      ? (msg.type === 'image' ? `📷 ${msg.text}` : (msg.isGif ? `🎬 ${msg.text}` : msg.text))
+      : (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? '📷 Photo' : ''));
     const relTime = formatRelativeTime(msg.timestamp);
     const authorStr = msg.username || 'Anon';
 
@@ -891,7 +920,7 @@ export class SciFiCloudEngine {
     }
 
     if (this.inspectText) {
-      this.inspectText.textContent = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? 'Image' : ''));
+      this.inspectText.textContent = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? '📷 Photo' : ''));
     }
 
     const isImage = msg.type === 'image';

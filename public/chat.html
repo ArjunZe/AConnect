@@ -9,6 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/main.css" />
   <link rel="stylesheet" href="/css/chat.css" />
+  <link rel="stylesheet" href="/css/emoji-gif-bundle.css" />
 </head>
 <body class="screen-locked">
   <!-- Ambient Sci-Fi Background Particle Canvas -->
@@ -251,59 +252,8 @@
         <button type="submit" class="dock-send-btn">Transmit ➔</button>
       </form>
 
-      <!-- WhatsApp-style Full-Fledged Emoji & GIF Picker -->
-      <div id="emojiPanel" class="emoji-panel hidden">
-        <!-- Top Bar: Search Bar + Tabs -->
-        <div class="emoji-picker-header">
-          <div class="emoji-search-box">
-            <span class="emoji-search-icon">🔍</span>
-            <input type="text" id="emojiSearchInput" class="emoji-search-input" placeholder="Search emojis or GIFs..." autocomplete="off" />
-            <button type="button" id="clearEmojiSearchBtn" class="emoji-clear-btn hidden" title="Clear search">✕</button>
-          </div>
-          <div class="emoji-mode-tabs">
-            <button type="button" id="tabEmojiBtn" class="emoji-mode-tab active" title="Emojis">😃 Emojis</button>
-            <button type="button" id="tabGifBtn" class="emoji-mode-tab" title="GIFs">🎬 GIFs</button>
-            <button type="button" id="closeEmojiPanelBtn" class="emoji-panel-close-btn" title="Close Panel">✕</button>
-          </div>
-        </div>
-
-        <!-- Emoji Section -->
-        <div id="emojiSection" class="emoji-section">
-          <!-- Category Tabs Navigation Bar -->
-          <div class="emoji-category-nav" id="emojiCategoryNav">
-            <button type="button" class="category-nav-btn active" data-cat="smileys" title="Smileys & People">😀</button>
-            <button type="button" class="category-nav-btn" data-cat="animals" title="Animals & Nature">🐶</button>
-            <button type="button" class="category-nav-btn" data-cat="food" title="Food & Drink">🍔</button>
-            <button type="button" class="category-nav-btn" data-cat="activities" title="Activities">⚽</button>
-            <button type="button" class="category-nav-btn" data-cat="travel" title="Travel & Places">🚗</button>
-            <button type="button" class="category-nav-btn" data-cat="objects" title="Objects">💡</button>
-            <button type="button" class="category-nav-btn" data-cat="symbols" title="Symbols">💖</button>
-            <button type="button" class="category-nav-btn" data-cat="flags" title="Flags">🏁</button>
-          </div>
-
-          <!-- Scrollable Emojis Container -->
-          <div class="emoji-scroll-body" id="emojiScrollBody"></div>
-        </div>
-
-        <!-- GIF Section -->
-        <div id="gifSection" class="gif-section hidden">
-          <!-- GIF Category Pills -->
-          <div class="gif-tags-bar" id="gifTagsBar">
-            <button type="button" class="gif-tag-btn active" data-tag="trending">🔥 Trending</button>
-            <button type="button" class="gif-tag-btn" data-tag="laugh">😂 Laugh</button>
-            <button type="button" class="gif-tag-btn" data-tag="love">❤️ Love</button>
-            <button type="button" class="gif-tag-btn" data-tag="shocked">😱 Wow</button>
-            <button type="button" class="gif-tag-btn" data-tag="dance">💃 Dance</button>
-            <button type="button" class="gif-tag-btn" data-tag="crying">😭 Sad</button>
-            <button type="button" class="gif-tag-btn" data-tag="thumbsup">👍 Yes</button>
-            <button type="button" class="gif-tag-btn" data-tag="facepalm">🤦 Facepalm</button>
-            <button type="button" class="gif-tag-btn" data-tag="bye">👋 Bye</button>
-          </div>
-
-          <!-- Scrollable GIF Grid -->
-          <div class="gif-grid" id="gifGrid"></div>
-        </div>
-      </div>
+      <!-- WhatsApp-style Full-Fledged Emoji & GIF Picker (React Powered) -->
+      <div id="emojiPanel" class="emoji-panel hidden"></div>
     </footer>
   </div>
 
@@ -379,6 +329,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/js/emoji-gif-bundle.js"></script>
   <script type="module" src="/js/chat.js"></script>
 </body>
 </html>

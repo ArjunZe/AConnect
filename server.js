@@ -1264,7 +1264,9 @@ chatNamespace.on('connection', (socket) => {
     const imageUrl = typeof payload?.imageUrl === 'string' ? payload.imageUrl.slice(0, 1000) : '';
     const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.slice(0, 1000) : '';
     const isGif = Boolean(payload?.isGif || (imageUrl && (imageUrl.includes('.gif') || imageUrl.includes('giphy.com') || imageUrl.includes('klipy.com'))));
-    const imageId = typeof payload?.imageId === 'string' ? payload.imageId.slice(0, 100) : '';
+    const clientMessageId = typeof payload?.clientMessageId === 'string' && payload.clientMessageId.trim() ? payload.clientMessageId.trim().slice(0, 100) : '';
+    const rawImageId = typeof payload?.imageId === 'string' && payload.imageId.trim() ? payload.imageId.trim().slice(0, 100) : '';
+    const imageId = rawImageId || clientMessageId || `${socket.id}-${Date.now()}`;
     const fileName = typeof payload?.fileName === 'string' ? sanitizeText(payload.fileName, 100) : (isGif ? 'reaction.gif' : 'image.jpg');
     const fileSize = typeof payload?.fileSize === 'number' ? payload.fileSize : 0;
     let imageData = null;
@@ -1301,7 +1303,8 @@ chatNamespace.on('connection', (socket) => {
 
     room.messageCount += 1;
     const message = {
-      id: `${socket.id}-${Date.now()}`,
+      id: clientMessageId || `${socket.id}-${Date.now()}`,
+      clientMessageId,
       room: targetRoomName,
       text: caption,
       username: senderUsername,

@@ -524,8 +524,11 @@ function sendGifMessage(gif) {
   if (!gif || !gif.url) return;
   emojiPanel?.classList.add('hidden');
 
+  const clientMsgId = `gif-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
   const fileName = `${(gif.title || 'reaction').replace(/[^a-zA-Z0-9_-]/g, '_')}.gif`;
   const payload = {
+    clientMessageId: clientMsgId,
+    imageId: clientMsgId,
     imageUrl: gif.url,
     downloadUrl: gif.url,
     fileName,
@@ -541,9 +544,11 @@ function sendGifMessage(gif) {
     }
   });
 
-  // Optimistically add to word cloud canvas so it appears in room instantly!
+  // Optimistically add to word cloud canvas so it appears in room instantly without duplicates!
   cloudEngine.addMessage({
-    id: `gif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: clientMsgId,
+    clientMessageId: clientMsgId,
+    imageId: clientMsgId,
     room: currentRoom || 'Default',
     text: '',
     username: myUsername,
@@ -568,6 +573,12 @@ emojiToggle?.addEventListener('click', (e) => {
   setupEmojiPicker();
   emojiPanel?.classList.toggle('hidden');
 });
+
+// Prevent internal clicks inside emoji/attachment panels from propagating to document
+emojiPanel?.addEventListener('click', (e) => e.stopPropagation());
+emojiPanel?.addEventListener('pointerdown', (e) => e.stopPropagation());
+attachmentMenu?.addEventListener('click', (e) => e.stopPropagation());
+attachmentMenu?.addEventListener('pointerdown', (e) => e.stopPropagation());
 
 // Attachment Menu triggers
 if (fileButton && attachmentMenu) {
@@ -598,15 +609,20 @@ if (galleryOptionBtn && fileInput) {
   });
 }
 
-// Global outside-click dismiss handler for popups
+// Global outside-click dismiss handler for popups using composedPath so React unmounted nodes don't trigger premature close
 document.addEventListener('click', (e) => {
+  const path = typeof e.composedPath === 'function' ? e.composedPath() : [];
+
   if (attachmentMenu && !attachmentMenu.classList.contains('hidden')) {
-    if (!e.target.closest('#attachmentMenu') && !e.target.closest('#fileButton')) {
+    const isInsideAttachment = path.includes(attachmentMenu) || path.includes(fileButton) || e.target.closest?.('#attachmentMenu') || e.target.closest?.('#fileButton');
+    if (!isInsideAttachment) {
       attachmentMenu.classList.add('hidden');
     }
   }
+
   if (emojiPanel && !emojiPanel.classList.contains('hidden')) {
-    if (!e.target.closest('#emojiPanel') && !e.target.closest('#emojiToggle')) {
+    const isInsideEmoji = path.includes(emojiPanel) || path.includes(emojiToggle) || e.target.closest?.('#emojiPanel') || e.target.closest?.('#emojiToggle');
+    if (!isInsideEmoji) {
       emojiPanel.classList.add('hidden');
     }
   }

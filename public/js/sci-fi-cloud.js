@@ -99,11 +99,33 @@ export class SciFiCloudEngine {
     this.isScrolling = false;
     this.isAnimating = false;
     this.touchMoved = false;
+    this.imageCache = new Map();
 
     this.initBgCanvas();
     this.initCloudCanvas();
     this.initInspectCard();
     this.startExpirationTicker();
+  }
+
+  getCachedImage(url) {
+    if (!url) return null;
+    let img = this.imageCache.get(url);
+    if (!img) {
+      img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        this.requestRender();
+      };
+      img.onerror = () => {
+        if (img.crossOrigin) {
+          img.crossOrigin = null;
+          img.src = url;
+        }
+      };
+      img.src = url;
+      this.imageCache.set(url, img);
+    }
+    return img;
   }
 
   initBgCanvas() {
@@ -363,17 +385,33 @@ export class SciFiCloudEngine {
     if (data.type === 'system') return;
     if (this.messages.some((m) => m.id === data.id)) return;
 
-    // Check if matching optimistic message by imageId exists
-    if (data.imageId && this.messages.some((m) => m.imageId === data.imageId)) {
-      const existing = this.messages.find((m) => m.imageId === data.imageId);
+    // Check if matching optimistic message by imageId or clientMessageId exists
+    const matchId = data.imageId || data.clientMessageId;
+    if (matchId) {
+      const existing = this.messages.find((m) => m.id === matchId || m.imageId === matchId || m.clientMessageId === matchId);
       if (existing) {
         existing.id = data.id || existing.id;
         if (data.imageUrl) existing.imageUrl = data.imageUrl;
         if (data.thumbUrl) existing.thumbUrl = data.thumbUrl;
         if (data.downloadUrl) existing.downloadUrl = data.downloadUrl;
         this.requestRender();
+        return;
       }
-      return;
+    }
+
+    // Deduplicate matching recent GIF by identical imageUrl from same sender within 15 seconds
+    if (data.isGif && data.imageUrl) {
+      const recentGifMatch = this.messages.find((m) =>
+        m.isGif &&
+        m.imageUrl === data.imageUrl &&
+        m.username === data.username &&
+        Math.abs(new Date(data.timestamp).getTime() - new Date(m.timestamp).getTime()) < 15000
+      );
+      if (recentGifMatch) {
+        recentGifMatch.id = data.id;
+        this.requestRender();
+        return;
+      }
     }
 
     this.messages.push(data);
@@ -466,37 +504,41 @@ export class SciFiCloudEngine {
         }
       });
     } else if (this.viewMode === 'chrono') {
-      // Chrono Flow: 2 columns on mobile and desktop with scrollable layout
-      const rowHeight = isMobile ? 65 : 75;
       const startY = isMobile ? 65 : 80;
       const colOffset = isMobile ? Math.min(95, w * 0.24) : Math.min(220, w * 0.25);
 
-      // Compute total content height & bounds for scrolling
-      const totalRows = Math.ceil(Math.max(1, total) / 2);
-      const contentBottom = startY + (isMobile ? 55 : 50) + totalRows * rowHeight + 90;
-      this.maxScrollY = Math.max(0, contentBottom - h + 80);
-      this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, this.chronoScrollY));
+      const latestMsg = this.messages[total - 1];
+      const isLatestMedia = latestMsg && (latestMsg.type === 'image' || latestMsg.isGif) && Boolean(latestMsg.imageUrl || latestMsg.imageData || latestMsg.thumbUrl || latestMsg.thumbData || latestMsg.downloadUrl);
+      const topGap = isLatestMedia ? (isMobile ? 125 : 155) : (isMobile ? 65 : 75);
+      const colY = [startY + topGap, startY + topGap];
 
-      this.messages.forEach((msg, idx) => {
+      // Distribute from newest (total - 1) down to oldest (0)
+      for (let i = total - 1; i >= 0; i--) {
+        const msg = this.messages[i];
         const state = this.nodeStates.get(msg.id);
-        if (!state) return;
+        if (!state) continue;
 
-        const indexFromLatest = total - 1 - idx; // 0 = newest at top
-
+        const indexFromLatest = total - 1 - i;
         if (indexFromLatest === 0) {
           state.baseX = centerX;
           state.baseY = startY;
         } else {
-          const col = indexFromLatest % 2;
-          const row = Math.floor(indexFromLatest / 2);
+          const col = colY[0] <= colY[1] ? 0 : 1;
           const offsetX = (col === 0 ? -1 : 1) * colOffset;
           state.baseX = centerX + offsetX;
-          state.baseY = startY + (isMobile ? 55 : 50) + row * rowHeight;
+          state.baseY = colY[col];
+          const isMedia = (msg.type === 'image' || msg.isGif) && Boolean(msg.imageUrl || msg.imageData || msg.thumbUrl || msg.thumbData || msg.downloadUrl);
+          const approxH = isMedia ? (isMobile ? 125 : 150) : (isMobile ? 58 : 68);
+          colY[col] += approxH + (isMobile ? 12 : 16);
         }
 
         state.targetX = state.baseX;
         state.targetY = state.baseY - this.chronoScrollY;
-      });
+      }
+
+      const contentBottom = Math.max(colY[0], colY[1]) + 90;
+      this.maxScrollY = Math.max(0, contentBottom - h + 80);
+      this.chronoScrollY = Math.max(0, Math.min(this.maxScrollY, this.chronoScrollY));
     } else if (this.viewMode === 'heatmap') {
       // Heatmap Mode: Sorted by reaction count + recency score
       const scored = [...this.messages].map(msg => {
@@ -784,21 +826,33 @@ export class SciFiCloudEngine {
       minNodeW = 170;
     }
 
+    const isMedia = (msg.type === 'image' || Boolean(msg.isGif)) && Boolean(msg.imageUrl || msg.imageData || msg.thumbUrl || msg.thumbData || msg.downloadUrl);
+    const hasCaption = Boolean(msg.text && msg.text.trim());
+
     // Measure unconstrained text width to give the card an optimal natural width
     ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
     const unconstrainedTextW = ctx.measureText(rawText).width + (rxWidth > 0 ? rxWidth + 10 : 0);
     const unconstrainedHeaderW = authorRawWidth + badgeWidth + timeWidth + 12;
 
     const desiredContentW = Math.max(unconstrainedTextW, unconstrainedHeaderW);
-    const calculatedNodeW = Math.max(minNodeW, desiredContentW + paddingX * 2);
+    let calculatedNodeW = Math.max(minNodeW, desiredContentW + paddingX * 2);
+    if (isMedia) {
+      calculatedNodeW = Math.max(isMobile ? 150 : 210, calculatedNodeW);
+    }
     const nodeWidth = Math.min(calculatedNodeW, maxAllowedWidth);
 
-    // Node Height: calculated precisely so header, divider, and body text with descenders fit with generous padding
+    // Node Height: calculated precisely so header, divider, media preview window, and body text fit
     const headerH = Math.floor(20 * (scale > 1.4 ? 1.1 : 1));
     const dividerGap = 6;
+    const previewW = nodeWidth - paddingX * 2;
+    const previewH = isMedia ? Math.round(isMobile ? Math.min(78, previewW * 0.56) : Math.min(105, previewW * 0.52)) : 0;
     const bodyGap = Math.floor(18 + (baseFontSize - 11) * 0.6);
     const bottomPadding = Math.max(8, Math.floor(baseFontSize * 0.65));
-    const nodeHeight = headerH + dividerGap + bodyGap + bottomPadding;
+    const captionGap = hasCaption ? bodyGap + 4 : 0;
+    const rxOnlyGap = (!hasCaption && rxWidth > 0) ? 16 : 0;
+    const nodeHeight = isMedia
+      ? headerH + dividerGap + previewH + captionGap + rxOnlyGap + bottomPadding + 2
+      : headerH + dividerGap + bodyGap + bottomPadding;
 
     state.width = nodeWidth;
     state.height = nodeHeight;
@@ -880,23 +934,112 @@ export class SciFiCloudEngine {
     ctx.lineTo(rectX + nodeWidth - paddingX, dividerY);
     ctx.stroke();
 
-    // 6. Body Message Text & Reaction Badges
-    const bodyY = dividerY + bodyGap;
+    if (isMedia) {
+      // 6. Media Small Preview Window (not full size, compact HUD frame)
+      const previewX = rectX + paddingX;
+      const previewY = dividerY + 5;
 
-    // Reaction Chips Badges (if present)
-    if (rxWidth > 0) {
-      ctx.font = `600 ${rxFontSize}px sans-serif`;
-      ctx.fillStyle = '#ffb700';
-      ctx.fillText(rxStr, rectX + nodeWidth - paddingX - rxWidth, bodyY);
+      // Small preview container background
+      ctx.fillStyle = 'rgba(0, 6, 18, 0.85)';
+      ctx.beginPath();
+      ctx.roundRect(previewX, previewY, previewW, previewH, 5);
+      ctx.fill();
+
+      // Render image/GIF thumbnail with center-crop
+      const mediaUrl = msg.thumbUrl || msg.thumbData || msg.imageUrl || msg.imageData || msg.downloadUrl;
+      const img = mediaUrl ? this.getCachedImage(mediaUrl) : null;
+      if (img && img.complete && img.naturalWidth > 0) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.roundRect(previewX, previewY, previewW, previewH, 5);
+        ctx.clip();
+
+        const imgAspect = img.naturalWidth / img.naturalHeight;
+        const boxAspect = previewW / previewH;
+        let sW, sH, sX, sY;
+        if (imgAspect > boxAspect) {
+          sH = img.naturalHeight;
+          sW = sH * boxAspect;
+          sX = (img.naturalWidth - sW) / 2;
+          sY = 0;
+        } else {
+          sW = img.naturalWidth;
+          sH = sW / boxAspect;
+          sX = 0;
+          sY = (img.naturalHeight - sH) / 2;
+        }
+        ctx.drawImage(img, sX, sY, sW, sH, previewX, previewY, previewW, previewH);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.06)';
+        ctx.fillRect(previewX, previewY, previewW, previewH);
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.7)';
+        ctx.font = `600 ${isMobile ? 10 : 11}px 'Space Grotesk', sans-serif`;
+        ctx.fillText(msg.isGif ? '🎬 GIF' : '📷 PHOTO', previewX + 8, previewY + previewH / 2 + 4);
+      }
+
+      // Small preview window tech border
+      ctx.strokeStyle = isHovered ? palette.main : (msg.isGif ? 'rgba(0, 240, 255, 0.45)' : 'rgba(0, 255, 170, 0.35)');
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(previewX, previewY, previewW, previewH, 5);
+      ctx.stroke();
+
+      // Tech Badge on Preview Window
+      if (msg.isGif) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+        ctx.beginPath();
+        ctx.roundRect(previewX + previewW - 27, previewY + 4, 23, 13, 3);
+        ctx.fill();
+        ctx.fillStyle = '#00f3ff';
+        ctx.font = `800 9px 'Space Grotesk', sans-serif`;
+        ctx.fillText('GIF', previewX + previewW - 23, previewY + 14);
+      } else {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+        ctx.beginPath();
+        ctx.roundRect(previewX + previewW - 22, previewY + 4, 18, 13, 3);
+        ctx.fill();
+        ctx.fillStyle = '#00ffaa';
+        ctx.font = `800 8.5px 'Space Grotesk', sans-serif`;
+        ctx.fillText('HD', previewX + previewW - 19, previewY + 14);
+      }
+
+      // Caption or reactions below the small preview window
+      if (hasCaption) {
+        const captionY = previewY + previewH + Math.floor(bodyGap * 0.85);
+        if (rxWidth > 0) {
+          ctx.font = `600 ${rxFontSize}px sans-serif`;
+          ctx.fillStyle = '#ffb700';
+          ctx.fillText(rxStr, rectX + nodeWidth - paddingX - rxWidth, captionY);
+        }
+        const availCaptionW = Math.max(10, nodeWidth - paddingX * 2 - (rxWidth > 0 ? rxWidth + 8 : 0));
+        ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
+        const displayCaption = fitText(ctx, msg.text, availCaptionW);
+        ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
+        ctx.fillText(displayCaption, rectX + paddingX, captionY);
+      } else if (rxWidth > 0) {
+        const rxY = previewY + previewH + 13;
+        ctx.font = `600 ${rxFontSize}px sans-serif`;
+        ctx.fillStyle = '#ffb700';
+        ctx.fillText(rxStr, rectX + paddingX, rxY);
+      }
+    } else {
+      // 6. Regular Message Text & Reaction Badges
+      const bodyY = dividerY + bodyGap;
+
+      if (rxWidth > 0) {
+        ctx.font = `600 ${rxFontSize}px sans-serif`;
+        ctx.fillStyle = '#ffb700';
+        ctx.fillText(rxStr, rectX + nodeWidth - paddingX - rxWidth, bodyY);
+      }
+
+      const availTextW = Math.max(10, nodeWidth - paddingX * 2 - (rxWidth > 0 ? rxWidth + 8 : 0));
+      ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
+      const displayText = fitText(ctx, rawText, availTextW);
+
+      ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
+      ctx.fillText(displayText, rectX + paddingX, bodyY);
     }
-
-    // Available width for body text: exact remaining pixel space!
-    const availTextW = Math.max(10, nodeWidth - paddingX * 2 - (rxWidth > 0 ? rxWidth + 8 : 0));
-    ctx.font = `600 ${baseFontSize}px 'Space Grotesk', sans-serif`;
-    const displayText = fitText(ctx, rawText, availTextW);
-
-    ctx.fillStyle = isLatest ? '#ffffff' : '#e2e8f0';
-    ctx.fillText(displayText, rectX + paddingX, bodyY);
 
     ctx.restore(); // Restores inner clip
 
@@ -923,7 +1066,7 @@ export class SciFiCloudEngine {
       this.inspectText.textContent = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? '📷 Photo' : ''));
     }
 
-    const isImage = msg.type === 'image';
+    const isImage = msg.type === 'image' || Boolean(msg.isGif);
     const fullUrl = msg.imageUrl || msg.imageData;
     const thumbUrl = msg.thumbUrl || msg.thumbData || fullUrl;
 

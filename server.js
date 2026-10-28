@@ -24,12 +24,27 @@ const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
 const MESSAGE_RATE_LIMIT_WINDOW = 60 * 1000;
 const MESSAGE_RATE_LIMIT_MAX = 30;
 
-const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+const DATA_DIR = process.env.DATA_DIR || process.env.PERSISTENT_STORAGE_DIR || path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(DATA_DIR)) {
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  } catch (e) {
+    console.warn('Could not create DATA_DIR:', e);
+  }
 }
 
-const GALLERY_MANIFEST_PATH = path.join(UPLOADS_DIR, 'gallery-manifest.json');
+// UPLOADS_DIR defaults to DATA_DIR/uploads if DATA_DIR is explicitly configured, or DATA_DIR directly
+const UPLOADS_DIR = process.env.UPLOADS_DIR || (process.env.DATA_DIR ? path.join(DATA_DIR, 'uploads') : DATA_DIR);
+if (!fs.existsSync(UPLOADS_DIR)) {
+  try {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  } catch (e) {
+    console.warn('Could not create UPLOADS_DIR:', e);
+  }
+}
+
+const GALLERY_MANIFEST_PATH = process.env.GALLERY_MANIFEST_PATH || path.join(DATA_DIR, 'gallery-manifest.json');
+const CHAT_STORE_PATH = process.env.CHAT_STORE_PATH || path.join(DATA_DIR, 'chat-store.json');
 
 function getGalleryManifest() {
   try {
@@ -49,7 +64,7 @@ function addToGalleryManifest(entry) {
     const list = getGalleryManifest();
     const filtered = list.filter((item) => item.imageId !== entry.imageId);
     filtered.unshift(entry);
-    fs.writeFile(GALLERY_MANIFEST_PATH, JSON.stringify(filtered.slice(0, 300), null, 2), (err) => {
+    fs.writeFile(GALLERY_MANIFEST_PATH, JSON.stringify(filtered.slice(0, 500), null, 2), (err) => {
       if (err) console.warn('Error writing gallery manifest:', err);
     });
   } catch (e) {
@@ -198,6 +213,7 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'chat.html'));
 });
 
+app.use('/uploads', express.static(UPLOADS_DIR));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const io = new Server(server, {
@@ -311,6 +327,103 @@ function ensureRoom(roomName, options = {}) {
   return room;
 }
 
+let chatStoreSaveTimer = null;
+function persistChatStore() {
+  if (chatStoreSaveTimer) return;
+  chatStoreSaveTimer = setTimeout(() => {
+    chatStoreSaveTimer = null;
+    try {
+      const dataToSave = { rooms: {}, version: 1, savedAt: new Date().toISOString() };
+      rooms.forEach((room, roomName) => {
+        dataToSave.rooms[roomName] = {
+          createdAt: room.createdAt,
+          password: room.password || '',
+          messageTTL: room.messageTTL || 0,
+          ownerId: room.ownerId || null,
+          notes: Array.isArray(room.notes) ? room.notes : [],
+          messages: (room.messages || []).map((m) => {
+            const reactionsObj = {};
+            if (m.reactions && typeof m.reactions === 'object') {
+              for (const [k, v] of Object.entries(m.reactions)) {
+                reactionsObj[k] = Array.isArray(v) ? v : (v instanceof Set ? Array.from(v) : []);
+              }
+            }
+            return {
+              ...m,
+              reactions: reactionsObj
+            };
+          })
+        };
+      });
+      fs.writeFile(CHAT_STORE_PATH, JSON.stringify(dataToSave, null, 2), (err) => {
+        if (err) console.warn('[Persistence] Could not persist chat store:', err);
+      });
+    } catch (e) {
+      console.warn('[Persistence] Error saving chat store:', e);
+    }
+  }, 1000);
+}
+
+function loadPersistedChatStore() {
+  try {
+    if (!fs.existsSync(CHAT_STORE_PATH)) return;
+    const raw = fs.readFileSync(CHAT_STORE_PATH, 'utf8');
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.rooms !== 'object') return;
+
+    const now = Date.now();
+    for (const [roomName, savedRoom] of Object.entries(parsed.rooms)) {
+      const room = ensureRoom(roomName, {
+        password: savedRoom.password || (roomName === 'Default' ? DEFAULT_ROOM_PASSWORD : ''),
+        messageTTL: savedRoom.messageTTL !== undefined ? savedRoom.messageTTL : (roomName === 'Default' ? 24 * 60 * 60 * 1000 : 0),
+        ownerId: savedRoom.ownerId || null
+      });
+      if (savedRoom.createdAt) room.createdAt = savedRoom.createdAt;
+      room.notes = Array.isArray(savedRoom.notes) ? savedRoom.notes : [];
+
+      const validMessages = [];
+      if (Array.isArray(savedRoom.messages)) {
+        for (const msg of savedRoom.messages) {
+          const restoredReactions = {};
+          if (msg.reactions && typeof msg.reactions === 'object') {
+            for (const [emoji, usersList] of Object.entries(msg.reactions)) {
+              restoredReactions[emoji] = new Set(Array.isArray(usersList) ? usersList : []);
+            }
+          }
+          msg.reactions = restoredReactions;
+
+          if (room.messageTTL > 0 && msg.timestamp) {
+            const age = now - new Date(msg.timestamp).getTime();
+            const remaining = room.messageTTL - age;
+            if (remaining > 0) {
+              validMessages.push(msg);
+              const timer = setTimeout(() => {
+                const targetRoom = rooms.get(roomName);
+                if (!targetRoom) return;
+                const index = targetRoom.messages.findIndex((item) => item.id === msg.id);
+                if (index === -1) return;
+                targetRoom.messages.splice(index, 1);
+                messageExpiryTimers.delete(msg.id);
+                chatNamespace.to(roomName).emit('message-deleted', { messageId: msg.id, reason: 'expired' });
+                emitRoomList(chatNamespace);
+                persistChatStore();
+              }, remaining);
+              messageExpiryTimers.set(msg.id, timer);
+            }
+          } else {
+            validMessages.push(msg);
+          }
+        }
+      }
+      room.messages = validMessages;
+      room.messageCount = validMessages.length;
+    }
+    console.log(`[Persistence] Loaded ${rooms.size} rooms and chat history from ${CHAT_STORE_PATH}`);
+  } catch (err) {
+    console.warn('[Persistence] Could not load persistent chat store:', err);
+  }
+}
+
 function sanitizeText(text, maxLength = 500) {
   return String(text || '').replace(/<[^>]*>/g, '').replace(/[\u0000-\u001F]/g, '').trim().slice(0, maxLength);
 }
@@ -408,9 +521,12 @@ function pushRoomMessage(roomName, message) {
       messageExpiryTimers.delete(message.id);
       chatNamespace.to(roomName).emit('message-deleted', { messageId: message.id, reason: 'expired' });
       emitRoomList(chatNamespace);
+      persistChatStore();
     }, room.messageTTL);
     messageExpiryTimers.set(message.id, timer);
   }
+
+  persistChatStore();
 }
 
 function verifyLockPassword(password, socketId) {
@@ -456,6 +572,7 @@ function destroyRoomMessagesSilently(roomName) {
 
   room.messages = [];
   room.messageCount = 0;
+  persistChatStore();
 
   chatNamespace.to(roomName).emit('room-purged', {
     room: roomName,
@@ -468,6 +585,7 @@ function destroyRoomMessagesSilently(roomName) {
 }
 
 ensureRoom('Default', { ownerId: null, password: DEFAULT_ROOM_PASSWORD, messageTTL: 24 * 60 * 60 * 1000 });
+loadPersistedChatStore();
 
 function touchUserActivity(socketId) {
   const user = users.get(socketId);
@@ -623,10 +741,13 @@ chatNamespace.on('connection', (socket) => {
           messageExpiryTimers.delete(msg.id);
           chatNamespace.to(targetRoomName).emit('message-deleted', { messageId: msg.id, reason: 'expired' });
           emitRoomList(chatNamespace);
+          persistChatStore();
         }, remainingMs);
         messageExpiryTimers.set(msg.id, newTimer);
       }
     });
+
+    persistChatStore();
 
     chatNamespace.to(targetRoomName).emit('room-ttl-updated', {
       room: targetRoomName,
@@ -717,6 +838,7 @@ chatNamespace.on('connection', (socket) => {
       notesCount: room.notes.length,
       addedBy: user?.username || 'Anonymous'
     });
+    persistChatStore();
 
     callback?.({ ok: true, room: targetRoomName, note, notes: room.notes });
   });
@@ -749,6 +871,7 @@ chatNamespace.on('connection', (socket) => {
       notesCount: room.notes.length,
       deletedBy: user?.username || 'Anonymous'
     });
+    persistChatStore();
 
     callback?.({ ok: true, room: targetRoomName, deletedId: noteId, notes: room.notes });
   });
@@ -768,6 +891,7 @@ chatNamespace.on('connection', (socket) => {
     }
 
     ensureRoom(name, { ownerId: socket.id, password, messageTTL });
+    persistChatStore();
     chatNamespace.emit('room-created', { name });
     emitRoomList(chatNamespace);
     callback?.({ ok: true, room: name });
@@ -929,6 +1053,7 @@ chatNamespace.on('connection', (socket) => {
 
     room.messages = [];
     room.messageCount = 0;
+    persistChatStore();
 
     chatNamespace.to(user.room).emit('room-purged', {
       room: user.room,
@@ -1045,6 +1170,7 @@ chatNamespace.on('connection', (socket) => {
       messageId,
       reactions: buildReactionPayload(message.reactions)
     });
+    persistChatStore();
   });
 
   socket.on('typing-start', () => {

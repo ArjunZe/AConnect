@@ -221,8 +221,27 @@
       </div>
 
       <form id="messageForm" class="dock-form">
-        <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji Panel">😊</button>
-        <button type="button" id="fileButton" class="dock-action-btn" title="Attach Image">📎</button>
+        <button type="button" id="emojiToggle" class="dock-action-btn" title="Emoji & GIF Panel">😊</button>
+
+        <div class="dock-attachment-wrap">
+          <button type="button" id="fileButton" class="dock-action-btn" title="Attach Media or Take Photo">📎</button>
+          
+          <!-- WhatsApp-style Attachment Popup Menu -->
+          <div id="attachmentMenu" class="attachment-menu hidden">
+            <button type="button" id="cameraOptionBtn" class="attachment-option-btn" title="Take a photo with camera">
+              <span class="attachment-icon-circle camera-circle">📷</span>
+              <span class="attachment-label">Camera</span>
+            </button>
+            <button type="button" id="galleryOptionBtn" class="attachment-option-btn" title="Choose photo from gallery or files">
+              <span class="attachment-icon-circle gallery-circle">🖼️</span>
+              <span class="attachment-label">Gallery / Files</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Native Camera Input (Forces device camera viewfinder on mobile) -->
+        <input type="file" id="cameraInput" class="hidden" accept="image/*" capture="environment" />
+        <!-- Standard File / Gallery Input -->
         <input type="file" id="fileInput" class="hidden" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp" />
         
         <div class="dock-input-wrap">
@@ -232,7 +251,59 @@
         <button type="submit" class="dock-send-btn">Transmit ➔</button>
       </form>
 
-      <div id="emojiPanel" class="emoji-panel hidden"></div>
+      <!-- WhatsApp-style Full-Fledged Emoji & GIF Picker -->
+      <div id="emojiPanel" class="emoji-panel hidden">
+        <!-- Top Bar: Search Bar + Tabs -->
+        <div class="emoji-picker-header">
+          <div class="emoji-search-box">
+            <span class="emoji-search-icon">🔍</span>
+            <input type="text" id="emojiSearchInput" class="emoji-search-input" placeholder="Search emojis or GIFs..." autocomplete="off" />
+            <button type="button" id="clearEmojiSearchBtn" class="emoji-clear-btn hidden" title="Clear search">✕</button>
+          </div>
+          <div class="emoji-mode-tabs">
+            <button type="button" id="tabEmojiBtn" class="emoji-mode-tab active" title="Emojis">😃 Emojis</button>
+            <button type="button" id="tabGifBtn" class="emoji-mode-tab" title="GIFs">🎬 GIFs</button>
+            <button type="button" id="closeEmojiPanelBtn" class="emoji-panel-close-btn" title="Close Panel">✕</button>
+          </div>
+        </div>
+
+        <!-- Emoji Section -->
+        <div id="emojiSection" class="emoji-section">
+          <!-- Category Tabs Navigation Bar -->
+          <div class="emoji-category-nav" id="emojiCategoryNav">
+            <button type="button" class="category-nav-btn active" data-cat="smileys" title="Smileys & People">😀</button>
+            <button type="button" class="category-nav-btn" data-cat="animals" title="Animals & Nature">🐶</button>
+            <button type="button" class="category-nav-btn" data-cat="food" title="Food & Drink">🍔</button>
+            <button type="button" class="category-nav-btn" data-cat="activities" title="Activities">⚽</button>
+            <button type="button" class="category-nav-btn" data-cat="travel" title="Travel & Places">🚗</button>
+            <button type="button" class="category-nav-btn" data-cat="objects" title="Objects">💡</button>
+            <button type="button" class="category-nav-btn" data-cat="symbols" title="Symbols">💖</button>
+            <button type="button" class="category-nav-btn" data-cat="flags" title="Flags">🏁</button>
+          </div>
+
+          <!-- Scrollable Emojis Container -->
+          <div class="emoji-scroll-body" id="emojiScrollBody"></div>
+        </div>
+
+        <!-- GIF Section -->
+        <div id="gifSection" class="gif-section hidden">
+          <!-- GIF Category Pills -->
+          <div class="gif-tags-bar" id="gifTagsBar">
+            <button type="button" class="gif-tag-btn active" data-tag="trending">🔥 Trending</button>
+            <button type="button" class="gif-tag-btn" data-tag="laugh">😂 Laugh</button>
+            <button type="button" class="gif-tag-btn" data-tag="love">❤️ Love</button>
+            <button type="button" class="gif-tag-btn" data-tag="shocked">😱 Wow</button>
+            <button type="button" class="gif-tag-btn" data-tag="dance">💃 Dance</button>
+            <button type="button" class="gif-tag-btn" data-tag="crying">😭 Sad</button>
+            <button type="button" class="gif-tag-btn" data-tag="thumbsup">👍 Yes</button>
+            <button type="button" class="gif-tag-btn" data-tag="facepalm">🤦 Facepalm</button>
+            <button type="button" class="gif-tag-btn" data-tag="bye">👋 Bye</button>
+          </div>
+
+          <!-- Scrollable GIF Grid -->
+          <div class="gif-grid" id="gifGrid"></div>
+        </div>
+      </div>
     </footer>
   </div>
 

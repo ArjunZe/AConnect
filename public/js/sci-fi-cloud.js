@@ -710,7 +710,7 @@ export class SciFiCloudEngine {
     const timeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
     const badgeFontSize = Math.max(9, Math.min(11, Math.floor(9.5 * (scale > 1.4 ? 1.05 : 1))));
 
-    const rawText = msg.text || (msg.type === 'image' ? 'Image' : '');
+    const rawText = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? 'Image' : ''));
     const relTime = formatRelativeTime(msg.timestamp);
     const authorStr = msg.username || 'Anon';
 
@@ -891,7 +891,7 @@ export class SciFiCloudEngine {
     }
 
     if (this.inspectText) {
-      this.inspectText.textContent = msg.text || (msg.type === 'image' ? 'Image' : '');
+      this.inspectText.textContent = msg.text || (msg.isGif ? '🎬 GIF' : (msg.type === 'image' ? 'Image' : ''));
     }
 
     const isImage = msg.type === 'image';

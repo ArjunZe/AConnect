@@ -31,6 +31,12 @@ const roomNameInput = document.getElementById('roomNameInput');
 const roomPasswordInput = document.getElementById('roomPasswordInput');
 const roomTTLSelect = document.getElementById('roomTTLSelect');
 const emojiPanel = document.getElementById('emojiPanel');
+const emojiToggle = document.getElementById('emojiToggle');
+const fileButton = document.getElementById('fileButton');
+const attachmentMenu = document.getElementById('attachmentMenu');
+const cameraOptionBtn = document.getElementById('cameraOptionBtn');
+const galleryOptionBtn = document.getElementById('galleryOptionBtn');
+const cameraInput = document.getElementById('cameraInput');
 const fileInput = document.getElementById('fileInput');
 const uploadProgressDock = document.getElementById('uploadProgressDock');
 const uploadProgressBar = document.getElementById('uploadProgressBar');
@@ -483,32 +489,577 @@ document.getElementById('saveRoom')?.addEventListener('click', () => {
   });
 });
 
-function setupEmojiPicker() {
-  if (!emojiPanel) return;
-  emojiPanel.innerHTML = '';
-  emojis.forEach((emoji) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = emoji;
-    button.addEventListener('click', () => {
-      if (!messageInput) return;
-      const start = messageInput.selectionStart;
-      const end = messageInput.selectionEnd;
-      messageInput.setRangeText(emoji, start, end, 'end');
-      messageInput.focus();
+// WhatsApp-style Full-Fledged Emoji & GIF Picker Engine
+const EMOJI_CATEGORIES = [
+  {
+    id: 'smileys',
+    name: 'Smileys & People',
+    icon: '😀',
+    emojis: [
+      '😀','😃','😄','😁','😆','😅','😂','🤣','🥲','🥹','😊','😇','🙂','🙃','😉','😌',
+      '😍','🥰','😘','😗','😙','😚','😋','😛','😝','😜','🤪','🤨','🧐','🤓','😎','🥸',
+      '🤩','🥳','😏','😒','😞','😔','😟','😕','🙁','☹️','😣','😖','😫','😩','🥺','😢',
+      '😭','😤','😠','😡','🤬','🤯','😳','🥵','🥶','😶‍🌫️','😱','😨','😰','😥','😓','🤗',
+      '🤔','🫣','🤫','🫡','🫢','🤥','😶','😐','😑','😬','🫨','🫠','🙄','😯','😦','😧',
+      '😮','😲','🥱','😴','🤤','😪','😵','😵‍💫','😮‍💨','🤐','🥴','🤢','🤮','🤧','😷','🤒',
+      '🤕','🤑','🤠','😈','👿','👹','👺','🤡','💩','👻','💀','☠️','👽','👾','🤖','🎃',
+      '😺','😸','😹','😻','😼','😽','🙀','😿','😾','👋','🤚','🖐️','✋','🖖','🫱','🫲',
+      '🫸','🫷','👌','🤌','🤏','✌️','🤞','🫰','🤟','🤘','🤙','👈','👉','👆','🖕','👇',
+      '☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅','🤳','💪'
+    ]
+  },
+  {
+    id: 'animals',
+    name: 'Animals & Nature',
+    icon: '🐶',
+    emojis: [
+      '🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐻‍❄️','🐨','🐯','🦁','🐮','🐷','🐽','🐸',
+      '🐵','🙈','🙉','🙊','🐒','🐔','🐧','🐦','🐤','🐣','🐥','🦆','🦅','🦉','🦇','🐺',
+      '🐗','🐴','🦄','🐝','🪱','🐛','🦋','🐌','🐞','🐜','🪰','🪲','🪳','🦟','🦗','🕷️',
+      '🕸️','🦂','🐢','🐍','🦎','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋',
+      '🦈','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬',
+      '🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🐈‍⬛',
+      '🐓','🦃','🦚','🦜','🦢','🦩','🕊️','🐇','🦝','🦨','🦡','🦫','🦦','🦥','🐁','🐀',
+      '🐿️','🦔','🐾','🌲','🌳','🌴','🌵','🌾','🌿','🍀','🍁','🍂','🍃','🌸','🌹','🌺','🌻','🌼','🌷'
+    ]
+  },
+  {
+    id: 'food',
+    name: 'Food & Drink',
+    icon: '🍔',
+    emojis: [
+      '🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥',
+      '🥝','🍅','🥑','🍆','🥦','🥬','🥒','🌶️','🫑','🌽','🥕','🫒','🧄','🧅','🥔','🍠',
+      '🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭',
+      '🍔','🍟','🍕','🫓','🥪','🥙','🧆','🌮','🌯','🫔','🥗','🥘','🫕','🥫','🍝','🍜',
+      '🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥠','🥮','🍢','🍡','🍧',
+      '🍨','🍦','🥧','🧁','🍰','🎂','🍮','🍭','🍬','🍫','🍿','🍩','🍪','🌰','🥜','🍯',
+      '🥛','🍼','☕','🫖','🍵','🍶','🍾','🍷','🍸','🍹','🍺','🍻','🥂','🥃','🥤','🧃','🧋','🧊'
+    ]
+  },
+  {
+    id: 'activities',
+    name: 'Activities',
+    icon: '⚽',
+    emojis: [
+      '⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🪀','🏓','🏸','🏒','🏑','🥍',
+      '🏏','🪃','🥅','⛳','🪁','🏹','🎣','🤿','🥊','🥋','🎽','🛹','🛼','🛷','⛸️','🥌',
+      '🎿','⛷️','🏂','🪂','🏋️‍♀️','🏋️‍♂️','🤼‍♀️','🤼‍♂️','🤸‍♀️','🤸‍♂️','⛹️‍♀️','⛹️‍♂️','🤺','🤾‍♀️','🤾‍♂️','🏌️‍♀️',
+      '🏌️‍♂️','🏇','🧘‍♀️','🧘‍♂️','🏄‍♀️','🏄‍♂️','🏊‍♀️','🏊‍♂️','🤽‍♀️','🤽‍♂️','🚣‍♀️','🚣‍♂️','🧗‍♀️','🧗‍♂️','🚵‍♀️','🚵‍♂️',
+      '🚴‍♀️','🚴‍♂️','🏆','🥇','🥈','🥉','🏅','🎖️','🏵️','🎗️','🎫','🎟️','🎪','🤹','🎭','🎨',
+      '🎬','🎤','🎧','🎼','🎹','🥁','🎷','🎺','🎸','🪕','🎻','🎲','♟️','🎯','🎳','🎮','🎰','🧩'
+    ]
+  },
+  {
+    id: 'travel',
+    name: 'Travel & Places',
+    icon: '🚗',
+    emojis: [
+      '🚗','🚕','🚙','🚌','🚎','🏎️','🚓','🚑','🚒','🚐','🛻','🚚','🚛','🚜','🦯','🦽',
+      '🦼','🛴','🚲','🛵','🏍️','🛺','🚨','🚔','🚍','🚘','🚖','🚡','🚠','🚟','🚃','🚋',
+      '🚞','🚝','🚄','🚅','🚈','🚂','🚆','🚇','🚊','🚉','✈️','🛫','🛬','🛩️','🚀','🛸',
+      '🚁','🛶','⛵','🚤','🛥️','🛳️','⛴️','🚢','⚓','🛟','⛽','🚧','🚦','🚥','🗺️','🗿',
+      '🗽','🗼','🏰','🏯','🏟️','🎡','🎢','🎪','🪐','🌠','🌌','🌋','🗻','🏕️','🏖️','🏜️','🏝️','🏞️'
+    ]
+  },
+  {
+    id: 'objects',
+    name: 'Objects',
+    icon: '💡',
+    emojis: [
+      '⌚','📱','📲','💻','⌨️','🖥️','🖨️','🖱️','🖲️','🕹️','💽','💾','💿','📀','📼','📷',
+      '📸','📹','🎥','📽️','📞','☎️','📟','📠','📺','📻','🎙️','🎚️','🎛️','⏱️','⏲️','⏰',
+      '🕰️','💡','🔦','🕯️','🪔','🏮','🪩','💰','🪙','💵','💴','💶','💷','💸','💳','🧾',
+      '💎','⚖️','🪜','🧰','🪛','🔧','🔨','⚒️','🛠️','⛏️','🪚','🔩','⚙️','🪤','🧱','⛓️',
+      '🧲','🔫','💣','🧨','🪓','🔪','🗡️','⚔️','🛡️','🚬','⚰️','🪦','⚱️','🔮','📿','🧿',
+      '💈','🔭','🔬','🩻','🩹','🩺','💊','💉','🩸','🧬','🔑','🗝️','🚪','🪞','🪟','🛌'
+    ]
+  },
+  {
+    id: 'symbols',
+    name: 'Symbols',
+    icon: '💖',
+    emojis: [
+      '❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','❣️','💕','💞','💓',
+      '💗','💖','💘','💝','💟','☮️','✝️','☪️','🕉️','☸️','✡️','🔯','🪯','🕎','☯️','☦️',
+      '🛐','⛎','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','🆔','⚛️',
+      '🈳','🈹','📴','📳','🈶','🈚','🈸','🈺','🈷️','✴️','🆚','🉑','💮','🉐','㊙️','㊗️',
+      '🈴','🈵','🈲','🅰️','🅱️','🆎','🆑','🅾️','🆘','❌','⭕','🛑','⛔','📛','🚫','💯',
+      '💢','♨️','🚷','🚯','🚳','🚱','🔞','📵','🚭','❗','❕','❓','❔','‼️','⁉️','🔅'
+    ]
+  },
+  {
+    id: 'flags',
+    name: 'Flags',
+    icon: '🏁',
+    emojis: [
+      '🏁','🚩','🎌','🏴','🏳️','🏳️‍🌈','🏳️‍⚧️','🏴‍☠️','🇦🇫','🇦🇽','🇦🇱','🇩🇿','🇦🇸','🇦🇩','🇦🇴','🇦🇮',
+      '🇦🇷','🇦🇲','🇦🇼','🇦🇺','🇦🇹','🇦🇿','🇧🇸','🇧🇭','🇧🇩','🇧🇧','🇧🇾','🇧🇪','🇧🇿','🇧🇯','🇧🇲','🇧🇹',
+      '🇧🇴','🇧🇦','🇧🇼','🇧🇷','🇮🇴','🇻🇬','🇧🇳','🇧🇬','🇧🇫','🇧🇮','🇰🇭','🇨🇲','🇨🇦','🇮🇨','🇨🇻','🇧🇶',
+      '🇰🇾','🇨🇫','🇹🇩','🇨🇱','🇨🇳','🇨🇽','🇨🇨','🇨🇴','🇰🇲','🇨🇬','🇨🇩','🇨🇰','🇨🇷','🇨🇮','🇭🇷','🇨🇺',
+      '🇨🇼','🇨🇾','🇨🇿','🇩🇰','🇩🇯','🇩🇲','🇩🇴','🇪🇨','🇪🇬','🇸🇻','🇬🇶','🇪🇷','🇪🇪','🇸🇿','🇪🇹','🇪🇺',
+      '🇫🇰','🇫🇴','🇫🇯','🇫🇮','🇫🇷','🇬🇫','🇵🇫','🇹🇫','🇬🇦','🇬🇲','🇬🇪','🇩🇪','🇬🇭','🇬🇮','🇬🇷','🇬🇱',
+      '🇬🇩','🇬🇵','🇬🇺','🇬🇹','🇬🇬','🇬🇳','🇬🇼','🇬🇾','🇭🇹','🇭🇳','🇭🇰','🇭🇺','🇮🇸','🇮🇳','🇮🇩','🇮🇷',
+      '🇮🇶','🇮🇪','🇮🇲','🇮🇱','🇮🇹','🇯🇲','🇯🇵','🇯🇪','🇯🇴','🇰🇿','🇰🇪','🇰🇮','🇽🇰','🇰🇼','🇰🇬','🇱🇦',
+      '🇱🇻','🇱🇧','🇱🇸','🇱🇷','🇱🇾','🇱🇮','🇱🇹','🇱🇺','🇲🇴','🇲🇬','🇲🇼','🇲🇾','🇲🇻','🇲🇱','🇲🇹','🇲🇭',
+      '🇲🇶','🇲🇷','🇲🇺','🇾🇹','🇲🇽','🇫🇲','🇲🇩','🇲🇨','🇲🇳','🇲🇪','🇲🇸','🇲🇦','🇲🇿','🇲🇲','🇳🇦','🇳🇷',
+      '🇳🇵','🇳🇱','🇳🇨','🇳🇿','🇳🇮','🇳🇪','🇳🇬','🇳🇺','🇳🇫','🇰🇵','🇲🇰','🇲🇵','🇳🇴','🇴🇲','🇵🇰','🇵🇼',
+      '🇵🇸','🇵🇦','🇵🇬','🇵🇾','🇵🇪','🇵🇭','🇵🇳','🇵🇱','🇵🇹','🇵🇷','🇶🇦','🇷🇪','🇷🇴','🇷🇺','🇷🇼','🇼🇸',
+      '🇸🇲','🇸🇹','🇸🇦','🇸🇳','🇷🇸','🇸🇨','🇸🇱','🇸🇬','🇸🇽','🇸🇰','🇸🇮','🇬🇸','🇸🇧','🇸🇴','🇿🇦','🇰🇷',
+      '🇸🇸','🇪🇸','🇱🇰','🇧🇱','🇸🇭','🇰🇳','🇱🇨','🇵🇲','🇻🇨','🇸🇩','🇸🇷','🇸🇪','🇨🇭','🇸🇾','🇹🇼','🇹🇯',
+      '🇹🇿','🇹🇭','🇹🇱','🇹🇬','🇹🇰','🇹🇴','🇹🇹','🇹🇳','🇹🇷','🇹🇲','🇹🇨','🇹🇻','🇺🇬','🇺🇦','🇦🇪','🇬🇧',
+      '🇺🇸','🇺🇾','🇺🇿','🇻🇺','🇻🇦','🇻🇪','🇻🇳','🇼🇫','🇪🇭','🇾🇪','🇿🇲','🇿🇼'
+    ]
+  }
+];
+
+const EMOJI_KEYWORDS = {
+  smile: ['😀','😃','😄','😁','😆','😅','😊','🙂','😉','😌'],
+  laugh: ['😂','🤣','😆','😅','😸','😹'],
+  lol: ['😂','🤣','😆','😅'],
+  happy: ['😀','😃','😄','😁','😊','🥰','🥳','✨'],
+  love: ['😍','🥰','😘','❤️','💕','💞','💓','💗','💖','💘','💝'],
+  heart: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❤️‍🔥','❤️‍🩹','❣️','💕'],
+  fire: ['🔥','💥','⚡','🚀','🌋'],
+  hot: ['🔥','🥵','🌶️','☀️'],
+  cool: ['😎','🕶️','🧊','❄️'],
+  cry: ['😢','😭','😿','🥺','💧','🌧️'],
+  sad: ['😢','😭','🥺','😞','😔','😟','😕','🙁','☹️'],
+  kiss: ['😘','😗','😙','😚','💋'],
+  wink: ['😉','😜','😝','🤪'],
+  party: ['🎉','🥳','🎊','🍾','🍻','🥂','🎈'],
+  dog: ['🐶','🐕','🐩','🦮','🐕‍🦺'],
+  cat: ['🐱','🐈','🐈‍⬛','😺','😸','😹','😻','😼','😽','🙀','😿','😾'],
+  wow: ['😮','😲','🤯','🤩','😱'],
+  shock: ['😱','😨','😰','🤯','😳','😮'],
+  think: ['🤔','🧐','🤨'],
+  sleep: ['😴','🥱','🤤','💤'],
+  thumbs: ['👍','👎'],
+  yes: ['👍','✅','👌','🤝'],
+  no: ['👎','❌','🛑','🚫'],
+  clap: ['👏','🙌','👐'],
+  pray: ['🙏','🤲'],
+  hand: ['👋','🤚','🖐️','✋','🖖','🫱','🫲','🫸','🫷','👌','🤌','🤏','✌️','🤞'],
+  dance: ['💃','🕺','👯‍♀️','👯‍♂️'],
+  food: ['🍔','🍕','🍟','🌭','🌮','🌯','🥪','🥩','🍗','🍙','🍣','🍜'],
+  coffee: ['☕','🫖','🍵','🥤'],
+  beer: ['🍺','🍻','🍷','🍸','🍹','🥂'],
+  car: ['🚗','🚕','🚙','🏎️','🚓','🚑','🚒'],
+  music: ['🎵','🎶','🎤','🎧','🎼','🎹','🥁','🎷','🎺','🎸'],
+  star: ['⭐','🌟','✨','💫','🌠'],
+  money: ['💰','🪙','💵','💴','💶','💷','💸','💳']
+};
+
+function getRecentEmojis() {
+  try {
+    const raw = localStorage.getItem('aconnect_recent_emojis');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return ['👍', '❤️', '😂', '🔥', '👏', '😮', '🎉', '😢', '😎', '🙏'];
+}
+
+function recordRecentEmoji(emoji) {
+  try {
+    let recents = getRecentEmojis().filter((e) => e !== emoji);
+    recents.unshift(emoji);
+    recents = recents.slice(0, 24);
+    localStorage.setItem('aconnect_recent_emojis', JSON.stringify(recents));
+  } catch (e) {}
+}
+
+let activeEmojiTab = 'emoji'; // 'emoji' | 'gif'
+let activeGifTag = 'trending';
+let lastGifsLoaded = [];
+let gifSearchDebounceTimer = null;
+
+function renderCategoryNav() {
+  const nav = document.getElementById('emojiCategoryNav');
+  if (!nav) return;
+  nav.innerHTML = '';
+
+  // Recent Tab
+  const recentBtn = document.createElement('button');
+  recentBtn.type = 'button';
+  recentBtn.className = 'category-nav-btn active';
+  recentBtn.dataset.cat = 'recent';
+  recentBtn.title = 'Recently Used';
+  recentBtn.textContent = '🕒';
+  recentBtn.addEventListener('click', () => {
+    setActiveCategory('recent');
+    const target = document.getElementById('cat-section-recent');
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+  nav.appendChild(recentBtn);
+
+  EMOJI_CATEGORIES.forEach((cat) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'category-nav-btn';
+    btn.dataset.cat = cat.id;
+    btn.title = cat.name;
+    btn.textContent = cat.icon;
+    btn.addEventListener('click', () => {
+      setActiveCategory(cat.id);
+      const target = document.getElementById(`cat-section-${cat.id}`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
-    emojiPanel.appendChild(button);
+    nav.appendChild(btn);
   });
 }
 
-document.getElementById('emojiToggle')?.addEventListener('click', () => {
+function setActiveCategory(catId) {
+  document.querySelectorAll('#emojiCategoryNav .category-nav-btn').forEach((b) => {
+    b.classList.toggle('active', b.dataset.cat === catId);
+  });
+}
+
+function insertEmojiIntoInput(emoji) {
+  if (!messageInput) return;
+  const start = messageInput.selectionStart;
+  const end = messageInput.selectionEnd;
+  messageInput.setRangeText(emoji, start, end, 'end');
+  messageInput.focus();
+  recordRecentEmoji(emoji);
+  updateRecentSection();
+}
+
+function createEmojiButton(emoji) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'emoji-item-btn';
+  btn.textContent = emoji;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    insertEmojiIntoInput(emoji);
+  });
+  return btn;
+}
+
+function updateRecentSection() {
+  const grid = document.getElementById('cat-grid-recent');
+  if (!grid) return;
+  grid.innerHTML = '';
+  getRecentEmojis().forEach((emoji) => {
+    grid.appendChild(createEmojiButton(emoji));
+  });
+}
+
+function renderEmojiSections(filterText = '') {
+  const body = document.getElementById('emojiScrollBody');
+  if (!body) return;
+  body.innerHTML = '';
+
+  const query = filterText.trim().toLowerCase();
+
+  if (query) {
+    const matchingEmojis = new Set();
+    Object.keys(EMOJI_KEYWORDS).forEach((key) => {
+      if (key.includes(query) || query.includes(key)) {
+        EMOJI_KEYWORDS[key].forEach((em) => matchingEmojis.add(em));
+      }
+    });
+
+    EMOJI_CATEGORIES.forEach((cat) => {
+      if (cat.name.toLowerCase().includes(query) || cat.id.includes(query)) {
+        cat.emojis.slice(0, 30).forEach((em) => matchingEmojis.add(em));
+      }
+    });
+
+    if (matchingEmojis.size === 0 && query.length <= 4) {
+      matchingEmojis.add(query);
+    }
+
+    const title = document.createElement('div');
+    title.className = 'emoji-category-title';
+    title.textContent = matchingEmojis.size > 0 ? `Results for "${filterText}" (${matchingEmojis.size})` : `No emojis found for "${filterText}"`;
+    body.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    matchingEmojis.forEach((em) => grid.appendChild(createEmojiButton(em)));
+    body.appendChild(grid);
+    return;
+  }
+
+  // 1. Recent Section
+  const recentSection = document.createElement('div');
+  recentSection.className = 'emoji-category-section';
+  recentSection.id = 'cat-section-recent';
+
+  const recentTitle = document.createElement('div');
+  recentTitle.className = 'emoji-category-title';
+  recentTitle.textContent = 'Recently Used';
+  recentSection.appendChild(recentTitle);
+
+  const recentGrid = document.createElement('div');
+  recentGrid.className = 'emoji-grid';
+  recentGrid.id = 'cat-grid-recent';
+  getRecentEmojis().forEach((em) => recentGrid.appendChild(createEmojiButton(em)));
+  recentSection.appendChild(recentGrid);
+  body.appendChild(recentSection);
+
+  // 2. All Categories
+  EMOJI_CATEGORIES.forEach((cat) => {
+    const sec = document.createElement('div');
+    sec.className = 'emoji-category-section';
+    sec.id = `cat-section-${cat.id}`;
+
+    const title = document.createElement('div');
+    title.className = 'emoji-category-title';
+    title.textContent = cat.name;
+    sec.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.className = 'emoji-grid';
+    cat.emojis.forEach((em) => grid.appendChild(createEmojiButton(em)));
+    sec.appendChild(grid);
+
+    body.appendChild(sec);
+  });
+}
+
+// GIF Handling
+async function loadGifs({ tag = '', q = '' } = {}) {
+  const gifGrid = document.getElementById('gifGrid');
+  if (!gifGrid) return;
+
+  gifGrid.innerHTML = `
+    <div style="grid-column: 1 / -1; display:flex; align-items:center; justify-content:center; gap:8px; padding:30px; color:var(--accent-cyan); font-family:var(--hud-font); font-size:12px;">
+      <span>⏳ Loading GIFs...</span>
+    </div>
+  `;
+
+  try {
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    else if (tag) params.set('tag', tag);
+    params.set('limit', '24');
+
+    const res = await fetch(`/api/gifs?${params.toString()}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const gifs = Array.isArray(data.gifs) ? data.gifs : [];
+    lastGifsLoaded = gifs;
+    renderGifGrid(gifs, q || tag);
+  } catch (err) {
+    console.error('Failed to load GIFs:', err);
+    gifGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align:center; padding:30px; color:#ff4466; font-family:var(--hud-font); font-size:12px;">
+        Failed to load GIFs. Check connection.
+      </div>
+    `;
+  }
+}
+
+function renderGifGrid(gifs, label = '') {
+  const gifGrid = document.getElementById('gifGrid');
+  if (!gifGrid) return;
+  gifGrid.innerHTML = '';
+
+  if (gifs.length === 0) {
+    gifGrid.innerHTML = `
+      <div style="grid-column: 1 / -1; text-align:center; padding:30px; color:var(--text-secondary); font-family:var(--hud-font); font-size:12px;">
+        No GIFs found for "${label}".
+      </div>
+    `;
+    return;
+  }
+
+  gifs.forEach((gif) => {
+    const card = document.createElement('div');
+    card.className = 'gif-card';
+    card.title = gif.title || 'Send GIF';
+
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.src = gif.previewUrl || gif.url;
+    img.alt = gif.title || 'GIF';
+    card.appendChild(img);
+
+    if (gif.title) {
+      const overlay = document.createElement('div');
+      overlay.className = 'gif-card-overlay';
+      overlay.textContent = gif.title;
+      card.appendChild(overlay);
+    }
+
+    card.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendGifMessage(gif);
+    });
+
+    gifGrid.appendChild(card);
+  });
+}
+
+function sendGifMessage(gif) {
+  if (!gif || !gif.url) return;
+  emojiPanel?.classList.add('hidden');
+
+  socket.emit('send-file', {
+    imageUrl: gif.url,
+    downloadUrl: gif.url,
+    fileName: `${(gif.title || 'reaction').replace(/[^a-zA-Z0-9_-]/g, '_')}.gif`,
+    caption: '',
+    isGif: true
+  }, (response) => {
+    if (!response?.ok) {
+      alert(response?.error || 'Failed to transmit GIF.');
+    }
+  });
+
+  showNotification('GIF Transmitted', gif.title || 'Reaction GIF sent to room');
+}
+
+function setupEmojiPicker() {
+  if (!emojiPanel) return;
+
+  renderCategoryNav();
+  renderEmojiSections();
+
+  const searchInput = document.getElementById('emojiSearchInput');
+  const clearBtn = document.getElementById('clearEmojiSearchBtn');
+  const tabEmojiBtn = document.getElementById('tabEmojiBtn');
+  const tabGifBtn = document.getElementById('tabGifBtn');
+  const emojiSection = document.getElementById('emojiSection');
+  const gifSection = document.getElementById('gifSection');
+  const closeBtn = document.getElementById('closeEmojiPanelBtn');
+
+  tabEmojiBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activeEmojiTab = 'emoji';
+    tabEmojiBtn.classList.add('active');
+    tabGifBtn?.classList.remove('active');
+    emojiSection?.classList.remove('hidden');
+    gifSection?.classList.add('hidden');
+    if (searchInput) {
+      searchInput.placeholder = 'Search emojis...';
+      if (searchInput.value.trim()) {
+        renderEmojiSections(searchInput.value.trim());
+      }
+    }
+  });
+
+  tabGifBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    activeEmojiTab = 'gif';
+    tabGifBtn.classList.add('active');
+    tabEmojiBtn?.classList.remove('active');
+    gifSection?.classList.remove('hidden');
+    emojiSection?.classList.add('hidden');
+    if (searchInput) {
+      searchInput.placeholder = 'Search GIFs...';
+      if (searchInput.value.trim()) {
+        loadGifs({ q: searchInput.value.trim() });
+      } else if (lastGifsLoaded.length === 0) {
+        loadGifs({ tag: activeGifTag });
+      }
+    } else if (lastGifsLoaded.length === 0) {
+      loadGifs({ tag: activeGifTag });
+    }
+  });
+
+  closeBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    emojiPanel.classList.add('hidden');
+  });
+
+  searchInput?.addEventListener('input', () => {
+    const val = searchInput.value;
+    clearBtn?.classList.toggle('hidden', !val);
+
+    if (activeEmojiTab === 'emoji') {
+      renderEmojiSections(val);
+    } else {
+      clearTimeout(gifSearchDebounceTimer);
+      gifSearchDebounceTimer = setTimeout(() => {
+        if (val.trim()) {
+          loadGifs({ q: val.trim() });
+        } else {
+          loadGifs({ tag: activeGifTag });
+        }
+      }, 350);
+    }
+  });
+
+  clearBtn?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (searchInput) {
+      searchInput.value = '';
+      clearBtn.classList.add('hidden');
+      if (activeEmojiTab === 'emoji') {
+        renderEmojiSections('');
+      } else {
+        loadGifs({ tag: activeGifTag });
+      }
+      searchInput.focus();
+    }
+  });
+
+  document.querySelectorAll('#gifTagsBar .gif-tag-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      document.querySelectorAll('#gifTagsBar .gif-tag-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeGifTag = btn.dataset.tag || 'trending';
+      if (searchInput) searchInput.value = '';
+      clearBtn?.classList.add('hidden');
+      loadGifs({ tag: activeGifTag });
+    });
+  });
+}
+
+emojiToggle?.addEventListener('click', (e) => {
+  e.stopPropagation();
+  attachmentMenu?.classList.add('hidden');
+  const isOpening = emojiPanel?.classList.contains('hidden');
   emojiPanel?.classList.toggle('hidden');
+  if (isOpening && activeEmojiTab === 'gif' && lastGifsLoaded.length === 0) {
+    loadGifs({ tag: activeGifTag });
+  }
 });
 
-document.getElementById('fileButton')?.addEventListener('click', () => {
-  window.isOpeningFilePicker = true;
-  fileInput?.click();
-  setTimeout(() => { window.isOpeningFilePicker = false; }, 30000);
+// Attachment Menu triggers
+if (fileButton && attachmentMenu) {
+  fileButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    emojiPanel?.classList.add('hidden');
+    attachmentMenu.classList.toggle('hidden');
+  });
+}
+
+if (cameraOptionBtn && cameraInput) {
+  cameraOptionBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachmentMenu?.classList.add('hidden');
+    window.isOpeningFilePicker = true;
+    cameraInput.click();
+    setTimeout(() => { window.isOpeningFilePicker = false; }, 30000);
+  });
+}
+
+if (galleryOptionBtn && fileInput) {
+  galleryOptionBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    attachmentMenu?.classList.add('hidden');
+    window.isOpeningFilePicker = true;
+    fileInput.click();
+    setTimeout(() => { window.isOpeningFilePicker = false; }, 30000);
+  });
+}
+
+// Global outside-click dismiss handler for popups
+document.addEventListener('click', (e) => {
+  if (attachmentMenu && !attachmentMenu.classList.contains('hidden')) {
+    if (!e.target.closest('#attachmentMenu') && !e.target.closest('#fileButton')) {
+      attachmentMenu.classList.add('hidden');
+    }
+  }
+  if (emojiPanel && !emojiPanel.classList.contains('hidden')) {
+    if (!e.target.closest('#emojiPanel') && !e.target.closest('#emojiToggle')) {
+      emojiPanel.classList.add('hidden');
+    }
+  }
 });
 
 window.addEventListener('focus', () => {
@@ -626,104 +1177,122 @@ function uploadFileWithProgress(file, onProgress) {
   });
 }
 
+function handleSelectedFile(file) {
+  if (!file) return;
+
+  const maxBytes = 50 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    alert('Image exceeds maximum allowed size of 50MB.');
+    return;
+  }
+
+  const selectedFile = file;
+
+  // Show floating progress bar above text input without blocking typing or sending
+  if (uploadProgressDock) {
+    uploadProgressDock.classList.remove('hidden');
+    if (uploadProgressBar) {
+      uploadProgressBar.style.width = '0%';
+      uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
+      uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
+    }
+    if (uploadProgressPercent) uploadProgressPercent.textContent = '0%';
+    const fileName = selectedFile.name || 'camera_shot.jpg';
+    if (uploadProgressText) uploadProgressText.textContent = `Uploading ${fileName} (${formatBytes(selectedFile.size)})...`;
+  }
+
+  (async () => {
+    try {
+      // Run thumbnail generation concurrently in background
+      const thumbPromise = generateThumbnail(selectedFile, 320, 0.55);
+
+      // Upload starts immediately over the network
+      const uploadData = await uploadFileWithProgress(selectedFile, ({ loaded, total, percent }) => {
+        if (uploadProgressDock) {
+          if (uploadProgressBar) uploadProgressBar.style.width = `${percent}%`;
+          if (uploadProgressPercent) uploadProgressPercent.textContent = `${percent}%`;
+          if (uploadProgressText) {
+            const fileName = selectedFile.name || 'camera_shot.jpg';
+            if (percent < 99) {
+              uploadProgressText.textContent = `Uploading ${fileName}: ${formatBytes(loaded)} / ${formatBytes(total)}`;
+            } else if (percent === 99) {
+              uploadProgressText.textContent = `Processing image on server (${formatBytes(total)})...`;
+            } else {
+              uploadProgressText.textContent = 'Upload complete! Sharing to room...';
+            }
+          }
+        }
+      });
+
+      const thumbData = await thumbPromise.catch(() => '');
+
+      socket.emit('send-file', {
+        imageId: uploadData.imageId,
+        imageUrl: uploadData.imageUrl,
+        downloadUrl: uploadData.downloadUrl,
+        thumbData: thumbData || '',
+        fileName: uploadData.fileName || selectedFile.name || 'image.jpg',
+        fileSize: uploadData.fileSize,
+        caption: ''
+      }, (response) => {
+        if (!response?.ok) {
+          alert(response?.error || 'Failed to transmit image.');
+        }
+      });
+
+      if (uploadProgressDock) {
+        if (uploadProgressBar) uploadProgressBar.style.width = '100%';
+        if (uploadProgressPercent) uploadProgressPercent.textContent = '100%';
+        if (uploadProgressText) uploadProgressText.textContent = 'Image shared successfully!';
+        setTimeout(() => {
+          uploadProgressDock?.classList.add('hidden');
+          if (uploadProgressBar) uploadProgressBar.style.width = '0%';
+        }, 1800);
+      }
+    } catch (err) {
+      console.error('[Upload error]', err);
+      if (uploadProgressDock) {
+        if (uploadProgressText) uploadProgressText.textContent = `Upload failed: ${err.message || 'Error'}`;
+        if (uploadProgressBar) {
+          uploadProgressBar.style.background = '#ff4444';
+          uploadProgressBar.style.boxShadow = '0 0 10px rgba(255, 68, 68, 0.8)';
+        }
+        setTimeout(() => {
+          uploadProgressDock?.classList.add('hidden');
+          if (uploadProgressBar) {
+            uploadProgressBar.style.width = '0%';
+            uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
+            uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
+          }
+        }, 3500);
+      }
+      alert(err.message || 'Image upload failed. Please try again.');
+    }
+  })();
+}
+
 if (fileInput) {
   fileInput.addEventListener('change', () => {
     window.isOpeningFilePicker = false;
     const file = fileInput.files?.[0];
-    if (!file) return;
-
-    const maxBytes = 50 * 1024 * 1024;
-    if (file.size > maxBytes) {
-      alert('Image exceeds maximum allowed size of 50MB.');
-      fileInput.value = '';
-      return;
-    }
-
-    const selectedFile = file;
     fileInput.value = '';
-
-    // Show floating progress bar above text input without blocking typing or sending
-    if (uploadProgressDock) {
-      uploadProgressDock.classList.remove('hidden');
-      if (uploadProgressBar) {
-        uploadProgressBar.style.width = '0%';
-        uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
-        uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
-      }
-      if (uploadProgressPercent) uploadProgressPercent.textContent = '0%';
-      if (uploadProgressText) uploadProgressText.textContent = `Uploading ${selectedFile.name} (${formatBytes(selectedFile.size)})...`;
-    }
-
-    (async () => {
-      try {
-        // Run thumbnail generation concurrently in background
-        const thumbPromise = generateThumbnail(selectedFile, 320, 0.55);
-
-        // Upload starts immediately over the network
-        const uploadData = await uploadFileWithProgress(selectedFile, ({ loaded, total, percent }) => {
-          if (uploadProgressDock) {
-            if (uploadProgressBar) uploadProgressBar.style.width = `${percent}%`;
-            if (uploadProgressPercent) uploadProgressPercent.textContent = `${percent}%`;
-            if (uploadProgressText) {
-              if (percent < 99) {
-                uploadProgressText.textContent = `Uploading ${selectedFile.name}: ${formatBytes(loaded)} / ${formatBytes(total)}`;
-              } else if (percent === 99) {
-                uploadProgressText.textContent = `Processing image on server (${formatBytes(total)})...`;
-              } else {
-                uploadProgressText.textContent = 'Upload complete! Sharing to room...';
-              }
-            }
-          }
-        });
-
-        const thumbData = await thumbPromise.catch(() => '');
-
-        socket.emit('send-file', {
-          imageId: uploadData.imageId,
-          imageUrl: uploadData.imageUrl,
-          downloadUrl: uploadData.downloadUrl,
-          thumbData: thumbData || '',
-          fileName: uploadData.fileName,
-          fileSize: uploadData.fileSize,
-          caption: ''
-        }, (response) => {
-          if (!response?.ok) {
-            alert(response?.error || 'Failed to transmit image.');
-          }
-        });
-
-        if (uploadProgressDock) {
-          if (uploadProgressBar) uploadProgressBar.style.width = '100%';
-          if (uploadProgressPercent) uploadProgressPercent.textContent = '100%';
-          if (uploadProgressText) uploadProgressText.textContent = 'Image shared successfully!';
-          setTimeout(() => {
-            uploadProgressDock?.classList.add('hidden');
-            if (uploadProgressBar) uploadProgressBar.style.width = '0%';
-          }, 1800);
-        }
-      } catch (err) {
-        console.error('[Upload error]', err);
-        if (uploadProgressDock) {
-          if (uploadProgressText) uploadProgressText.textContent = `Upload failed: ${err.message || 'Error'}`;
-          if (uploadProgressBar) {
-            uploadProgressBar.style.background = '#ff4444';
-            uploadProgressBar.style.boxShadow = '0 0 10px rgba(255, 68, 68, 0.8)';
-          }
-          setTimeout(() => {
-            uploadProgressDock?.classList.add('hidden');
-            if (uploadProgressBar) {
-              uploadProgressBar.style.width = '0%';
-              uploadProgressBar.style.background = 'linear-gradient(90deg, var(--accent-cyan), #00ffaa)';
-              uploadProgressBar.style.boxShadow = '0 0 8px rgba(0, 240, 255, 0.8)';
-            }
-          }, 3500);
-        }
-        alert(err.message || 'Image upload failed. Please try again.');
-      }
-    })();
+    if (file) handleSelectedFile(file);
   });
 
   fileInput.addEventListener('cancel', () => {
+    window.isOpeningFilePicker = false;
+  });
+}
+
+if (cameraInput) {
+  cameraInput.addEventListener('change', () => {
+    window.isOpeningFilePicker = false;
+    const file = cameraInput.files?.[0];
+    cameraInput.value = '';
+    if (file) handleSelectedFile(file);
+  });
+
+  cameraInput.addEventListener('cancel', () => {
     window.isOpeningFilePicker = false;
   });
 }

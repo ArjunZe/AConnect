@@ -199,6 +199,122 @@ app.post('/api/gallery/images', (req, res) => {
   });
 });
 
+// Curated reaction GIFs catalog (verified high-availability fallback)
+const CURATED_GIFS = [
+  // Trending / Hype
+  { id: 'Lq0h93752f6J9tijrh', title: 'Trending Fire Dance', tag: 'trending', previewUrl: 'https://media.giphy.com/media/Lq0h93752f6J9tijrh/200w.gif', url: 'https://media.giphy.com/media/Lq0h93752f6J9tijrh/giphy.gif' },
+  { id: 'xT0xeJpnrWC4XWblEk', title: 'Party Parrot', tag: 'trending', previewUrl: 'https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/200w.gif', url: 'https://media.giphy.com/media/xT0xeJpnrWC4XWblEk/giphy.gif' },
+  { id: '3o7abKhOpu0NwenH3O', title: 'Laugh Out Loud', tag: 'trending', previewUrl: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/200w.gif', url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+  { id: '5VKbvrjxpVJCM', title: 'Chris Pratt Wow', tag: 'trending', previewUrl: 'https://media.giphy.com/media/5VKbvrjxpVJCM/200w.gif', url: 'https://media.giphy.com/media/5VKbvrjxpVJCM/giphy.gif' },
+  { id: 'blSTtZehjAZ8I', title: 'Carlton Dance', tag: 'trending', previewUrl: 'https://media.giphy.com/media/blSTtZehjAZ8I/200w.gif', url: 'https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif' },
+  { id: '111ebonMs90YLu', title: 'Gatsby Cheers', tag: 'trending', previewUrl: 'https://media.giphy.com/media/111ebonMs90YLu/200w.gif', url: 'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif' },
+
+  // Laugh
+  { id: '3o7abKhOpu0NwenH3O_2', title: 'LOL Laughing', tag: 'laugh', previewUrl: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/200w.gif', url: 'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif' },
+  { id: '10JhviFuU2gWD6', title: 'Kramer Laugh', tag: 'laugh', previewUrl: 'https://media.giphy.com/media/10JhviFuU2gWD6/200w.gif', url: 'https://media.giphy.com/media/10JhviFuU2gWD6/giphy.gif' },
+  { id: '9M5jK4GXmD5o1irGrF', title: 'Minions Laugh', tag: 'laugh', previewUrl: 'https://media.giphy.com/media/9M5jK4GXmD5o1irGrF/200w.gif', url: 'https://media.giphy.com/media/9M5jK4GXmD5o1irGrF/giphy.gif' },
+  { id: 'ZqlvCTNHpqrio', title: 'Cat Laughing', tag: 'laugh', previewUrl: 'https://media.giphy.com/media/ZqlvCTNHpqrio/200w.gif', url: 'https://media.giphy.com/media/ZqlvCTNHpqrio/giphy.gif' },
+
+  // Love
+  { id: '26FLdmIp6wJr91JAI', title: 'Heart Explosion', tag: 'love', previewUrl: 'https://media.giphy.com/media/26FLdmIp6wJr91JAI/200w.gif', url: 'https://media.giphy.com/media/26FLdmIp6wJr91JAI/giphy.gif' },
+  { id: '3o7TKoWXm3okO1kgHC', title: 'Heart Eyes', tag: 'love', previewUrl: 'https://media.giphy.com/media/3o7TKoWXm3okO1kgHC/200w.gif', url: 'https://media.giphy.com/media/3o7TKoWXm3okO1kgHC/giphy.gif' },
+  { id: 'l4pTdcifPZLpDjL1e', title: 'Puppy Love', tag: 'love', previewUrl: 'https://media.giphy.com/media/l4pTdcifPZLpDjL1e/200w.gif', url: 'https://media.giphy.com/media/l4pTdcifPZLpDjL1e/giphy.gif' },
+  { id: 'M90mJvfWfd5mbUuULX', title: 'Sending Love Hearts', tag: 'love', previewUrl: 'https://media.giphy.com/media/M90mJvfWfd5mbUuULX/200w.gif', url: 'https://media.giphy.com/media/M90mJvfWfd5mbUuULX/giphy.gif' },
+
+  // Wow / Shocked
+  { id: '5VKbvrjxpVJCM_2', title: 'Chris Pratt Shocked', tag: 'shocked', previewUrl: 'https://media.giphy.com/media/5VKbvrjxpVJCM/200w.gif', url: 'https://media.giphy.com/media/5VKbvrjxpVJCM/giphy.gif' },
+  { id: 'l3q2K5jinAlChoCLS', title: 'Mind Blown', tag: 'shocked', previewUrl: 'https://media.giphy.com/media/l3q2K5jinAlChoCLS/200w.gif', url: 'https://media.giphy.com/media/l3q2K5jinAlChoCLS/giphy.gif' },
+  { id: '26ufdipQqU2lhNA4g', title: 'Galaxy Brain', tag: 'shocked', previewUrl: 'https://media.giphy.com/media/26ufdipQqU2lhNA4g/200w.gif', url: 'https://media.giphy.com/media/26ufdipQqU2lhNA4g/giphy.gif' },
+  { id: '14uQ3cOFteDaU', title: 'Shocked Cat', tag: 'shocked', previewUrl: 'https://media.giphy.com/media/14uQ3cOFteDaU/200w.gif', url: 'https://media.giphy.com/media/14uQ3cOFteDaU/giphy.gif' },
+
+  // Dance
+  { id: 'blSTtZehjAZ8I_2', title: 'Carlton Dance', tag: 'dance', previewUrl: 'https://media.giphy.com/media/blSTtZehjAZ8I/200w.gif', url: 'https://media.giphy.com/media/blSTtZehjAZ8I/giphy.gif' },
+  { id: 'l0ExdMHUDKteztyfe', title: 'Happy Dance', tag: 'dance', previewUrl: 'https://media.giphy.com/media/l0ExdMHUDKteztyfe/200w.gif', url: 'https://media.giphy.com/media/l0ExdMHUDKteztyfe/giphy.gif' },
+  { id: 'tsX3YMWYzDPjAARfeg', title: 'Cat Grooving', tag: 'dance', previewUrl: 'https://media.giphy.com/media/tsX3YMWYzDPjAARfeg/200w.gif', url: 'https://media.giphy.com/media/tsX3YMWYzDPjAARfeg/giphy.gif' },
+  { id: '13hxeOYjo5q17G', title: 'Snoopy Dance', tag: 'dance', previewUrl: 'https://media.giphy.com/media/13hxeOYjo5q17G/200w.gif', url: 'https://media.giphy.com/media/13hxeOYjo5q17G/giphy.gif' },
+
+  // Sad / Crying
+  { id: 'd2lcHJTG5Tscg', title: 'Dawson Crying', tag: 'crying', previewUrl: 'https://media.giphy.com/media/d2lcHJTG5Tscg/200w.gif', url: 'https://media.giphy.com/media/d2lcHJTG5Tscg/giphy.gif' },
+  { id: 'ISOckXUybVfQ4', title: 'Pikachu Tears', tag: 'crying', previewUrl: 'https://media.giphy.com/media/ISOckXUybVfQ4/200w.gif', url: 'https://media.giphy.com/media/ISOckXUybVfQ4/giphy.gif' },
+  { id: 'L95W4wv8nnb9K', title: 'Will Smith Tears', tag: 'crying', previewUrl: 'https://media.giphy.com/media/L95W4wv8nnb9K/200w.gif', url: 'https://media.giphy.com/media/L95W4wv8nnb9K/giphy.gif' },
+  { id: 'OPU660S7tMQRa', title: 'Anime Crying', tag: 'crying', previewUrl: 'https://media.giphy.com/media/OPU660S7tMQRa/200w.gif', url: 'https://media.giphy.com/media/OPU660S7tMQRa/giphy.gif' },
+
+  // Thumbs up / Yes
+  { id: '111ebonMs90YLu_2', title: 'Gatsby Cheers Yes', tag: 'thumbsup', previewUrl: 'https://media.giphy.com/media/111ebonMs90YLu/200w.gif', url: 'https://media.giphy.com/media/111ebonMs90YLu/giphy.gif' },
+  { id: 'nXxOjZrbnbRxS', title: 'Borat Great Success', tag: 'thumbsup', previewUrl: 'https://media.giphy.com/media/nXxOjZrbnbRxS/200w.gif', url: 'https://media.giphy.com/media/nXxOjZrbnbRxS/giphy.gif' },
+  { id: '10UeedrT5MIfPG', title: 'Chuck Norris Thumbs Up', tag: 'thumbsup', previewUrl: 'https://media.giphy.com/media/10UeedrT5MIfPG/200w.gif', url: 'https://media.giphy.com/media/10UeedrT5MIfPG/giphy.gif' },
+  { id: 'xHMIDAy1qkzNS', title: 'Thumbs Up Kid', tag: 'thumbsup', previewUrl: 'https://media.giphy.com/media/xHMIDAy1qkzNS/200w.gif', url: 'https://media.giphy.com/media/xHMIDAy1qkzNS/giphy.gif' },
+
+  // Facepalm
+  { id: 'BY8ORoRpHJDXe', title: 'Double Facepalm', tag: 'facepalm', previewUrl: 'https://media.giphy.com/media/BY8ORoRpHJDXe/200w.gif', url: 'https://media.giphy.com/media/BY8ORoRpHJDXe/giphy.gif' },
+  { id: '131tNuGktpXGhy', title: 'Picard Facepalm', tag: 'facepalm', previewUrl: 'https://media.giphy.com/media/131tNuGktpXGhy/200w.gif', url: 'https://media.giphy.com/media/131tNuGktpXGhy/giphy.gif' },
+  { id: '3oEjI6SIIHBdRxXI40', title: 'Cat Facepalm', tag: 'facepalm', previewUrl: 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/200w.gif', url: 'https://media.giphy.com/media/3oEjI6SIIHBdRxXI40/giphy.gif' },
+
+  // Bye
+  { id: 'xT9IgG50Fb7Mi0prBC', title: 'Bye Wave', tag: 'bye', previewUrl: 'https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/200w.gif', url: 'https://media.giphy.com/media/xT9IgG50Fb7Mi0prBC/giphy.gif' },
+  { id: '1xVbSX8UzIiMPMZjZP', title: 'Waving Goodbye', tag: 'bye', previewUrl: 'https://media.giphy.com/media/1xVbSX8UzIiMPMZjZP/200w.gif', url: 'https://media.giphy.com/media/1xVbSX8UzIiMPMZjZP/giphy.gif' },
+  { id: '3oFzm7a84UxtgkWjy8', title: 'See Ya Wave', tag: 'bye', previewUrl: 'https://media.giphy.com/media/3oFzm7a84UxtgkWjy8/200w.gif', url: 'https://media.giphy.com/media/3oFzm7a84UxtgkWjy8/giphy.gif' },
+  { id: 'fxU6W04PpUpTDeaf6C', title: 'Bye Bye Hand', tag: 'bye', previewUrl: 'https://media.giphy.com/media/fxU6W04PpUpTDeaf6C/200w.gif', url: 'https://media.giphy.com/media/fxU6W04PpUpTDeaf6C/giphy.gif' },
+
+  // Cat
+  { id: 'JIX9t2j0ZTN9S', title: 'Bongo Cat Typing', tag: 'cat', previewUrl: 'https://media.giphy.com/media/JIX9t2j0ZTN9S/200w.gif', url: 'https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif' },
+  { id: 'mlvseq9yvZhba', title: 'Vibing Cat', tag: 'cat', previewUrl: 'https://media.giphy.com/media/mlvseq9yvZhba/200w.gif', url: 'https://media.giphy.com/media/mlvseq9yvZhba/giphy.gif' }
+];
+
+app.get('/api/gifs', async (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const tag = String(req.query.tag || '').trim().toLowerCase();
+  const limit = Math.min(parseInt(req.query.limit, 10) || 24, 50);
+
+  const apiKey = process.env.GIPHY_API_KEY;
+  if (apiKey) {
+    try {
+      const endpoint = q
+        ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}&limit=${limit}&rating=g`
+        : (tag && tag !== 'trending'
+          ? `https://api.giphy.com/v1/gifs/search?api_key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(tag)}&limit=${limit}&rating=g`
+          : `https://api.giphy.com/v1/gifs/trending?api_key=${encodeURIComponent(apiKey)}&limit=${limit}&rating=g`);
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const apiRes = await fetch(endpoint, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (apiRes.ok) {
+        const json = await apiRes.json();
+        if (Array.isArray(json?.data) && json.data.length > 0) {
+          const liveGifs = json.data.map((item) => ({
+            id: item.id,
+            title: item.title || q || tag || 'GIF',
+            previewUrl: item.images?.fixed_width_small?.url || item.images?.fixed_width?.url || item.images?.original?.url,
+            url: item.images?.original?.url || item.images?.downsized_medium?.url || item.images?.downsized?.url
+          }));
+          return res.json({ ok: true, gifs: liveGifs });
+        }
+      }
+    } catch (err) {
+      console.warn('Giphy API live search failed, falling back to curated list:', err.message);
+    }
+  }
+
+  // Curated fallback
+  let list = CURATED_GIFS;
+  if (q) {
+    list = CURATED_GIFS.filter((g) => g.title.toLowerCase().includes(q) || g.tag.toLowerCase().includes(q));
+    if (list.length === 0) {
+      list = CURATED_GIFS.filter((g) => g.tag === 'trending' || g.tag === 'laugh');
+    }
+  } else if (tag && tag !== 'trending') {
+    list = CURATED_GIFS.filter((g) => g.tag === tag);
+    if (list.length === 0) list = CURATED_GIFS;
+  }
+
+  res.json({
+    ok: true,
+    gifs: list.slice(0, limit)
+  });
+});
+
 // Gallery pages
 app.get('/gallery', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'gallery.html'));
@@ -1079,10 +1195,11 @@ chatNamespace.on('connection', (socket) => {
     if (!room) return;
 
     const caption = sanitizeText(payload?.caption || '', 200);
-    const imageUrl = typeof payload?.imageUrl === 'string' ? payload.imageUrl.slice(0, 300) : '';
-    const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.slice(0, 300) : '';
+    const imageUrl = typeof payload?.imageUrl === 'string' ? payload.imageUrl.slice(0, 1000) : '';
+    const downloadUrl = typeof payload?.downloadUrl === 'string' ? payload.downloadUrl.slice(0, 1000) : '';
+    const isGif = Boolean(payload?.isGif || (imageUrl && (imageUrl.includes('.gif') || imageUrl.includes('giphy.com'))));
     const imageId = typeof payload?.imageId === 'string' ? payload.imageId.slice(0, 100) : '';
-    const fileName = typeof payload?.fileName === 'string' ? sanitizeText(payload.fileName, 100) : 'image.jpg';
+    const fileName = typeof payload?.fileName === 'string' ? sanitizeText(payload.fileName, 100) : (isGif ? 'reaction.gif' : 'image.jpg');
     const fileSize = typeof payload?.fileSize === 'number' ? payload.fileSize : 0;
     let imageData = null;
 
@@ -1125,6 +1242,7 @@ chatNamespace.on('connection', (socket) => {
       socketId: socket.id,
       timestamp: new Date().toISOString(),
       type: 'image',
+      isGif,
       imageId,
       imageUrl,
       thumbUrl: thumbUrl || imageUrl,

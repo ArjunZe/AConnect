@@ -32,7 +32,7 @@
       <h2 class="history-auth-title">RESTRICTED ACCESS // DEVICE AUDIT</h2>
       <p class="history-auth-desc">Enter the room password or security clearance key to inspect connected terminal devices, browser footprints, and login session logs.</p>
       
-      <form id="historyAuthForm" autocomplete="off" style="display: flex; flex-direction: column; gap: 12px;">
+      <form id="historyAuthForm" action="javascript:void(0);" onsubmit="return false;" autocomplete="off" style="display: flex; flex-direction: column; gap: 12px;">
         <input type="password" id="historyPasswordInput" class="history-auth-input" placeholder="Security key / password..." autocomplete="new-password" value="" autofocus />
         <div id="historyAuthError" class="history-error-banner hidden"></div>
         <button type="submit" id="historyAuthSubmitBtn" class="btn-vault-action btn-vault-primary" style="justify-content: center; padding: 0.65rem;">

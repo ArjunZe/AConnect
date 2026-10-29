@@ -1,5 +1,16 @@
 import { escapeHtml } from './utils.js';
 
+function safeEscape(str) {
+  if (typeof escapeHtml === 'function') return escapeHtml(str);
+  return String(str ?? '').replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+}
+
 const historyAuthSection = document.getElementById('historyAuthSection');
 const historyContentSection = document.getElementById('historyContentSection');
 const historyAuthForm = document.getElementById('historyAuthForm');
@@ -206,17 +217,17 @@ function renderDevices() {
           <div class="device-icon-badge">${icon}</div>
           <div class="device-text-group">
             <div class="device-header-top">
-              <span class="device-name">${escapeHtml(dev.deviceName || dev.deviceModel || 'Terminal Device')}</span>
+              <span class="device-name">${safeEscape(dev.deviceName || dev.deviceModel || 'Terminal Device')}</span>
               <span class="status-pill ${dev.isOnline ? 'online' : 'offline'}">
                 <span class="pulse-dot"></span>
                 ${dev.isOnline ? 'Online' : 'Offline'}
               </span>
             </div>
             <div class="device-chips">
-              <span class="meta-chip">OS: <strong>${escapeHtml(dev.os || 'Unknown')}</strong></span>
-              <span class="meta-chip">Browser: <strong>${escapeHtml(dev.browser || 'Unknown')}</strong></span>
-              ${dev.screen && dev.screen !== 'N/A' ? `<span class="meta-chip">Screen: ${escapeHtml(dev.screen)}</span>` : ''}
-              ${dev.timezone && dev.timezone !== 'UTC' ? `<span class="meta-chip">${escapeHtml(dev.timezone)}</span>` : ''}
+              <span class="meta-chip">OS: <strong>${safeEscape(dev.os || 'Unknown')}</strong></span>
+              <span class="meta-chip">Browser: <strong>${safeEscape(dev.browser || 'Unknown')}</strong></span>
+              ${dev.screen && dev.screen !== 'N/A' ? `<span class="meta-chip">Screen: ${safeEscape(dev.screen)}</span>` : ''}
+              ${dev.timezone && dev.timezone !== 'UTC' ? `<span class="meta-chip">${safeEscape(dev.timezone)}</span>` : ''}
             </div>
           </div>
         </div>
@@ -231,7 +242,7 @@ function renderDevices() {
         <div class="device-meta-bar">
           <div class="meta-bar-item">
             <span class="item-label">DEVICE IDENTIFIER</span>
-            <span class="item-value" title="${escapeHtml(dev.deviceId)}">${escapeHtml(dev.deviceId)}</span>
+            <span class="item-value" title="${safeEscape(dev.deviceId)}">${safeEscape(dev.deviceId)}</span>
           </div>
           <div class="meta-bar-item">
             <span class="item-label">FIRST DETECTED</span>
@@ -243,7 +254,7 @@ function renderDevices() {
           </div>
           <div class="meta-bar-item">
             <span class="item-label">LAST CLIENT IP</span>
-            <span class="item-value">${escapeHtml(dev.lastIp || 'Unknown IP')}</span>
+            <span class="item-value">${safeEscape(dev.lastIp || 'Unknown IP')}</span>
           </div>
         </div>
 
@@ -262,12 +273,12 @@ function renderDevices() {
             return `
               <div class="session-row">
                 <div class="session-action-group">
-                  <span class="action-pill ${pillClass}">${escapeHtml(act)}</span>
-                  ${item.username ? `<span style="color: var(--text-secondary);">by <strong style="color: var(--text-primary);">${escapeHtml(item.username)}</strong></span>` : ''}
-                  ${item.room ? `<span style="color: var(--text-secondary);">in [${escapeHtml(item.room)}]</span>` : ''}
+                  <span class="action-pill ${pillClass}">${safeEscape(act)}</span>
+                  ${item.username ? `<span style="color: var(--text-secondary);">by <strong style="color: var(--text-primary);">${safeEscape(item.username)}</strong></span>` : ''}
+                  ${item.room ? `<span style="color: var(--text-secondary);">in [${safeEscape(item.room)}]</span>` : ''}
                 </div>
                 <div class="session-time-group">
-                  <span class="session-ip-badge">${escapeHtml(item.ip || 'Unknown IP')}</span>
+                  <span class="session-ip-badge">${safeEscape(item.ip || 'Unknown IP')}</span>
                   <span title="${formatFullDateTime(item.timestamp)}">${formatRelativeTime(item.timestamp)}</span>
                 </div>
               </div>
@@ -356,11 +367,23 @@ async function refreshHistory() {
   await authenticateAndLoad(activePassword);
 }
 
-// Event Listeners
-historyAuthForm?.addEventListener('submit', (e) => {
-  e.preventDefault();
+function handleAuthSubmit(e) {
+  if (e) e.preventDefault();
   const pass = String(historyPasswordInput?.value || '').trim();
   authenticateAndLoad(pass);
+}
+
+// Event Listeners
+historyAuthForm?.addEventListener('submit', handleAuthSubmit);
+
+const historyAuthSubmitBtn = document.getElementById('historyAuthSubmitBtn');
+historyAuthSubmitBtn?.addEventListener('click', handleAuthSubmit);
+
+historyPasswordInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    handleAuthSubmit(e);
+  }
 });
 
 lockHistoryBtn?.addEventListener('click', () => {
@@ -383,7 +406,11 @@ clearAllHistoryBtn?.addEventListener('click', () => {
   clearAllHistory();
 });
 
-// Auto-check session if passed via window or simply keep empty
+// Focus password input immediately and ensure it starts empty
+if (historyPasswordInput) {
+  historyPasswordInput.value = '';
+  historyPasswordInput.focus();
+}
 window.addEventListener('DOMContentLoaded', () => {
   if (historyPasswordInput) {
     historyPasswordInput.value = '';

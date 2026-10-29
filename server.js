@@ -75,27 +75,68 @@ function addToGalleryManifest(entry) {
 
 const LOGIN_HISTORY_PATH = process.env.LOGIN_HISTORY_PATH || path.join(DATA_DIR, 'login-history.json');
 
-function getLoginHistory() {
-  try {
-    if (fs.existsSync(LOGIN_HISTORY_PATH)) {
-      const data = fs.readFileSync(LOGIN_HISTORY_PATH, 'utf8');
-      const parsed = JSON.parse(data);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch (e) {
-    console.warn('Error reading login history:', e);
+let loginHistoryStore = null;
+
+function sanitizeDeviceRecord(dev) {
+  if (!dev || typeof dev !== 'object') return null;
+  // If previously misidentified as Safari on Android, correct to Chrome Mobile
+  if (/Android/i.test(dev.os || '') && /Safari/i.test(dev.browser || '')) {
+    dev.browser = 'Chrome Mobile';
+    dev.deviceName = `${dev.deviceModel || 'Android Device'} (${dev.os} • ${dev.browser})`;
   }
-  return [];
+  // Keep only chat logins and room accesses
+  if (Array.isArray(dev.logins)) {
+    dev.logins = dev.logins.filter((l) => {
+      const act = String(l?.action || '').toLowerCase();
+      return act.includes('chat') || act.includes('room') || act.includes('unlock');
+    });
+    dev.totalLogins = dev.logins.length;
+  }
+  return dev;
 }
 
-function saveLoginHistory(list) {
+function loadLoginHistoryFromDisk() {
   try {
-    fs.writeFile(LOGIN_HISTORY_PATH, JSON.stringify(list, null, 2), (err) => {
-      if (err) console.warn('Error writing login history:', err);
-    });
+    if (fs.existsSync(LOGIN_HISTORY_PATH)) {
+      const raw = fs.readFileSync(LOGIN_HISTORY_PATH, 'utf8');
+      if (raw && raw.trim()) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          loginHistoryStore = parsed.map(sanitizeDeviceRecord).filter(Boolean);
+          return;
+        }
+      }
+    }
   } catch (e) {
-    console.warn('Error writing login history:', e);
+    console.warn('[LoginHistory] Could not load history from disk:', e.message);
   }
+  loginHistoryStore = [];
+}
+
+loadLoginHistoryFromDisk();
+
+function getLoginHistory() {
+  if (!loginHistoryStore) {
+    loadLoginHistoryFromDisk();
+  }
+  return loginHistoryStore;
+}
+
+let saveHistoryTimer = null;
+function saveLoginHistory(list) {
+  loginHistoryStore = Array.isArray(list) ? list : [];
+
+  if (saveHistoryTimer) clearTimeout(saveHistoryTimer);
+  saveHistoryTimer = setTimeout(() => {
+    saveHistoryTimer = null;
+    try {
+      const tmpPath = `${LOGIN_HISTORY_PATH}.tmp.${process.pid}.${Date.now()}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(loginHistoryStore, null, 2), 'utf8');
+      fs.renameSync(tmpPath, LOGIN_HISTORY_PATH);
+    } catch (e) {
+      console.warn('[LoginHistory] Could not write history to disk:', e.message);
+    }
+  }, 250);
 }
 
 function parseUserAgentFallback(ua = '') {
@@ -131,37 +172,34 @@ function parseUserAgentFallback(ua = '') {
   let browser = 'Unknown Browser';
   if (/Brave/i.test(ua)) {
     browser = 'Brave';
+  } else if (/SamsungBrowser\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
+    browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/EdgiOS\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/EdgiOS\/([\d.]+)/i);
     browser = 'Edge iOS' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Edg\//i.test(ua)) {
+  } else if (/Edg\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/Edg\/([\d.]+)/i);
     browser = 'Edge' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/OPR\/|Opera/i.test(ua)) {
     const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/i);
     browser = 'Opera' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/SamsungBrowser/i.test(ua)) {
-    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
-    browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/CriOS\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/CriOS\/([\d.]+)/i);
     browser = 'Chrome iOS' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Chrome\/([\d.]+)/i.test(ua) && !/Mobile Safari/i.test(ua)) {
+  } else if (/Chrome\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/Chrome\/([\d.]+)/i);
-    browser = 'Chrome' + (match ? ' ' + match[1].split('.')[0] : '');
+    const ver = match ? ' ' + match[1].split('.')[0] : '';
+    browser = /Android/i.test(ua) ? `Chrome Mobile${ver}` : `Chrome${ver}`;
   } else if (/Firefox\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/Firefox\/([\d.]+)/i);
     browser = 'Firefox' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/FxiOS\/([\d.]+)/i);
     browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Safari/i.test(ua) && /Version\/([\d.]+)/i.test(ua)) {
+  } else if (/Safari/i.test(ua) && !/Chrome|CriOS|Android|Chromium/i.test(ua)) {
     const match = ua.match(/Version\/([\d.]+)/i);
     browser = 'Safari' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Safari/i.test(ua)) {
-    browser = 'Safari';
-  } else if (/Chrome/i.test(ua)) {
-    browser = 'Chrome Mobile';
   }
 
   let deviceType = 'desktop';
@@ -236,7 +274,7 @@ function recordLoginEvent(data = {}) {
 
     let deviceId = String(data.deviceId || '').trim();
     if (!deviceId) {
-      const fpStr = `${deviceModel}_${os}_${browser}_${screen}_${timezone}`;
+      const fpStr = `${cleanIp}_${deviceModel}_${os}_${browser}`;
       let hash = 0;
       for (let i = 0; i < fpStr.length; i++) {
         hash = (hash << 5) - hash + fpStr.charCodeAt(i);
@@ -278,16 +316,15 @@ function recordLoginEvent(data = {}) {
       device.lastIp = cleanIp;
     }
 
-    const action = String(data.action || 'Security Clearance Login').trim().slice(0, 80);
+    const action = String(data.action || 'Chat Login').trim().slice(0, 80);
     const username = String(data.username || 'Anonymous').trim().slice(0, 60);
     const room = String(data.room || 'Default').trim().slice(0, 60);
 
-    // Debounce consecutive logs from the same device within 90 seconds unless action differs
+    // Debounce consecutive events from the same device within 60 seconds
     const lastLogin = device.logins && device.logins[0];
     const timeSinceLast = lastLogin ? (Date.now() - new Date(lastLogin.timestamp).getTime()) : Infinity;
 
-    if (timeSinceLast > 90 * 1000 || (lastLogin && lastLogin.action !== action)) {
-      device.totalLogins = (device.totalLogins || (device.logins ? device.logins.length : 0)) + 1;
+    if (timeSinceLast > 60 * 1000) {
       if (!Array.isArray(device.logins)) device.logins = [];
       device.logins.unshift({
         id: 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
@@ -297,18 +334,22 @@ function recordLoginEvent(data = {}) {
         username,
         room
       });
-      if (device.logins.length > 80) {
-        device.logins = device.logins.slice(0, 80);
+      if (device.logins.length > 50) {
+        device.logins = device.logins.slice(0, 50);
       }
+      device.totalLogins = device.logins.length;
     } else if (lastLogin) {
       lastLogin.lastActive = now;
       lastLogin.ip = cleanIp;
+      if (action.includes('Room') || !lastLogin.action) {
+        lastLogin.action = action;
+      }
       if (username && username !== 'Anonymous') lastLogin.username = username;
       if (room && room !== 'Default') lastLogin.room = room;
     }
 
     list.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
-    saveLoginHistory(list.slice(0, 200));
+    saveLoginHistory(list.slice(0, 100));
     return device;
   } catch (err) {
     console.warn('Failed to record login event:', err);
@@ -385,14 +426,6 @@ app.post('/api/upload', (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
-    const userAgent = req.headers['user-agent'] || '';
-    recordLoginEvent({
-      userAgent,
-      ip: clientIp,
-      action: 'Media Upload'
-    });
-
     res.json({
       ok: true,
       imageId,
@@ -443,16 +476,6 @@ app.post('/api/gallery/images', (req, res) => {
       error: 'Access denied: Invalid security key / password.'
     });
   }
-
-  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
-  const userAgent = req.headers['user-agent'] || '';
-  const devData = req.body?.deviceInfo || {};
-  recordLoginEvent({
-    ...devData,
-    userAgent: devData.userAgent || userAgent,
-    ip: clientIp,
-    action: 'Media Vault Clearance'
-  });
 
   const images = getGalleryManifest();
   res.json({
@@ -670,16 +693,6 @@ app.post('/api/history', (req, res) => {
     });
   }
 
-  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
-  const userAgent = req.headers['user-agent'] || '';
-  const devData = req.body?.deviceInfo || {};
-  recordLoginEvent({
-    ...devData,
-    userAgent: devData.userAgent || userAgent,
-    ip: clientIp,
-    action: 'Device Audit Clearance'
-  });
-
   const list = getLoginHistory();
   const activeDeviceIds = new Set();
   for (const u of users.values()) {
@@ -691,7 +704,7 @@ app.post('/api/history', (req, res) => {
     isOnline: activeDeviceIds.has(dev.deviceId)
   }));
 
-  const totalLogins = devices.reduce((sum, d) => sum + (d.totalLogins || (d.logins ? d.logins.length : 0)), 0);
+  const totalLogins = devices.reduce((sum, d) => sum + (Array.isArray(d.logins) ? d.logins.length : (d.totalLogins || 0)), 0);
   const activeDevices = devices.filter((d) => d.isOnline).length;
   const lastLogin = devices[0]?.lastSeen || null;
 
@@ -1139,23 +1152,12 @@ function touchUserActivity(socketId) {
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
-  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
-  const userAgent = socket.handshake.headers['user-agent'] || '';
-
-  // Immediately record connection so any device is tracked upon link establishment
-  const initialDevice = recordLoginEvent({
-    userAgent,
-    ip: clientIp,
-    username,
-    action: 'Terminal Connected'
-  });
-
   users.set(socket.id, {
     socketId: socket.id,
     username,
     room: null,
     isLocked: true,
-    deviceId: initialDevice ? initialDevice.deviceId : null,
+    deviceId: null,
     joinedAt: new Date().toISOString(),
     lastActivity: Date.now()
   });
@@ -1167,18 +1169,8 @@ chatNamespace.on('connection', (socket) => {
   socket.on('register-device-login', (payload = {}) => {
     const devData = payload.deviceInfo || payload || {};
     const user = users.get(socket.id);
-    const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
-    const userAgent = socket.handshake.headers['user-agent'] || '';
-    const recorded = recordLoginEvent({
-      ...devData,
-      userAgent: devData.userAgent || userAgent,
-      ip: clientIp,
-      username: user?.username,
-      room: payload.roomName || user?.room || 'Default',
-      action: 'Session Connected'
-    });
-    if (user && recorded?.deviceId) {
-      user.deviceId = recorded.deviceId;
+    if (user && devData.deviceId) {
+      user.deviceId = devData.deviceId;
     }
   });
 
@@ -1915,14 +1907,6 @@ setInterval(() => {
 }, 10000);
 
 callNamespace.on('connection', (socket) => {
-  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
-  const userAgent = socket.handshake.headers['user-agent'] || '';
-  recordLoginEvent({
-    userAgent,
-    ip: clientIp,
-    action: 'Call Session Connected'
-  });
-
   socket.on('verify-lock-password', ({ password }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
       callback?.({ ok: true });

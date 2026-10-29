@@ -80,6 +80,9 @@ export function getDeviceInfo() {
   let browser = 'Unknown Browser';
   if (/Brave/i.test(ua) || (typeof navigator !== 'undefined' && navigator.brave)) {
     browser = 'Brave';
+  } else if (/SamsungBrowser\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
+    browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/EdgiOS\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/EdgiOS\/([\d.]+)/i);
     browser = 'Edge iOS' + (match ? ' ' + match[1].split('.')[0] : '');
@@ -89,28 +92,22 @@ export function getDeviceInfo() {
   } else if (/OPR\/|Opera/i.test(ua)) {
     const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/i);
     browser = 'Opera' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/SamsungBrowser/i.test(ua)) {
-    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
-    browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/CriOS\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/CriOS\/([\d.]+)/i);
     browser = 'Chrome iOS' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/FxiOS\/([\d.]+)/i);
-    browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Chrome\/([\d.]+)/i.test(ua) && !/Mobile Safari/i.test(ua)) {
+  } else if (/Chrome\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/Chrome\/([\d.]+)/i);
-    browser = 'Chrome' + (match ? ' ' + match[1].split('.')[0] : '');
+    const ver = match ? ' ' + match[1].split('.')[0] : '';
+    browser = /Android/i.test(ua) ? `Chrome Mobile${ver}` : `Chrome${ver}`;
   } else if (/Firefox\/([\d.]+)/i.test(ua)) {
     const match = ua.match(/Firefox\/([\d.]+)/i);
     browser = 'Firefox' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Safari/i.test(ua) && /Version\/([\d.]+)/i.test(ua)) {
+  } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/FxiOS\/([\d.]+)/i);
+    browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Safari/i.test(ua) && !/Chrome|CriOS|Android|Chromium/i.test(ua)) {
     const match = ua.match(/Version\/([\d.]+)/i);
     browser = 'Safari' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/Safari/i.test(ua)) {
-    browser = 'Safari';
-  } else if (/Chrome/i.test(ua)) {
-    browser = 'Chrome Mobile';
   }
 
   // 3. Device Form Factor & Model Detection
@@ -162,19 +159,4 @@ export function getDeviceInfo() {
     touch,
     userAgent: ua
   };
-}
-
-/**
- * Sends a lightweight HTTP heartbeat to register device activity on the server immediately,
- * even if WebSockets are connecting or screen is locked.
- */
-export async function sendDeviceHeartbeat(action = 'Session Connected') {
-  try {
-    const info = getDeviceInfo();
-    await fetch('/api/history/record', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...info, action })
-    });
-  } catch (_) {}
 }

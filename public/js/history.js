@@ -1,8 +1,4 @@
 import { escapeHtml } from './utils.js';
-import { getDeviceInfo, sendDeviceHeartbeat } from './device-detector.js';
-
-// Send initial device footprint when audit page is visited
-sendDeviceHeartbeat('Device Audit Visited');
 
 function safeEscape(str) {
   if (typeof escapeHtml === 'function') return escapeHtml(str);
@@ -95,11 +91,10 @@ async function authenticateAndLoad(password) {
   }
 
   try {
-    const deviceInfo = getDeviceInfo();
     const res = await fetch('/api/history', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password, deviceInfo })
+      body: JSON.stringify({ password })
     });
 
     const data = await res.json().catch(() => ({}));

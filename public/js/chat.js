@@ -3,6 +3,7 @@ import { debounce, formatBytes, generateUsername, sanitizeMessage, showNotificat
 import { encryptPayload, decryptPayload, decryptMessages } from './e2ee.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
 import { initInactivityLock } from './inactivity-lock.js';
+import { getDeviceInfo } from './device-detector.js';
 import {
   getVideoOnlyStream,
   createPeerConnection,
@@ -240,7 +241,8 @@ function joinRoom(roomName, isPrivate = false, knownPassword = '') {
     stopLiveVideo(false);
   }
   const isLocked = typeof window.isScreenLocked === 'function' ? window.isScreenLocked() : false;
-  socket.emit('join-room', { roomName, password, isLocked }, (response) => {
+  const deviceInfo = typeof getDeviceInfo === 'function' ? getDeviceInfo() : null;
+  socket.emit('join-room', { roomName, password, isLocked, deviceInfo }, (response) => {
     if (!response?.ok) {
       if (response?.purged) {
         if (typeof window.onDestroyMessagesSilently === 'function') {

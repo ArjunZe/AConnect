@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnonConnect // Device & Login History</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Rajdhani:wght@500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/main.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/history.css" />
+</head>
+<body class="history-page">
+  <header class="history-header">
+    <div class="history-brand">
+      <span class="history-title">ANONCONNECT // DEVICE AUDIT</span>
+      <span id="historyStatusBadge" class="vault-badge">🔒 RESTRICTED AUDIT</span>
+    </div>
+    <div class="history-nav-actions">
+      <button id="lockHistoryBtn" class="btn-vault-action hidden" title="Conceal and lock audit data">🔒 Lock Audit</button>
+      <button id="refreshHistoryBtn" class="btn-vault-action hidden" title="Reload device logs">🔄 Refresh</button>
+      <a href="/gallery" class="btn-vault-action" title="Open Media Vault">🖼️ Media Vault</a>
+      <a href="/" class="btn-vault-action btn-vault-primary" title="Return to Chat HUD">💬 Back to Chat</a>
+    </div>
+  </header>
+
+  <main class="history-container">
+    <!-- Security Clearance Screen -->
+    <section id="historyAuthSection" class="history-auth-card">
+      <div class="history-auth-icon">🛡️</div>
+      <h2 class="history-auth-title">RESTRICTED ACCESS // DEVICE AUDIT</h2>
+      <p class="history-auth-desc">Enter the room password or security clearance key to inspect connected terminal devices, browser footprints, and login session logs.</p>
+      
+      <form id="historyAuthForm" autocomplete="off" style="display: flex; flex-direction: column; gap: 12px;">
+        <input type="password" id="historyPasswordInput" class="history-auth-input" placeholder="Security key / password..." autocomplete="new-password" value="" autofocus />
+        <div id="historyAuthError" class="history-error-banner hidden"></div>
+        <button type="submit" id="historyAuthSubmitBtn" class="btn-vault-action btn-vault-primary" style="justify-content: center; padding: 0.65rem;">
+          🔓 Decrypt Device Audit ➔
+        </button>
+      </form>
+    </section>
+
+    <!-- History Content Screen (Revealed upon clearance) -->
+    <section id="historyContentSection" class="hidden history-content-area">
+      <!-- High-level Analytics Grid -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">TRACKED DEVICES</div>
+          <div class="stat-value" id="statTotalDevices">0</div>
+          <div class="stat-sub">Grouped unique hardware</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">TOTAL LOGINS</div>
+          <div class="stat-value" id="statTotalLogins">0</div>
+          <div class="stat-sub">Recorded sessions</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">ONLINE TERMINALS</div>
+          <div class="stat-value text-accent-green" id="statActiveDevices">0</div>
+          <div class="stat-sub">Active live connections</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">LATEST ACTIVITY</div>
+          <div class="stat-value text-accent-cyan" id="statLastActivity" style="font-size: 1.1rem; line-height: 1.8;">--</div>
+          <div class="stat-sub">Most recent event</div>
+        </div>
+      </div>
+
+      <!-- Controls & Search Toolbar -->
+      <div class="history-toolbar">
+        <div class="history-search-box">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="historySearchInput" class="history-search-input" placeholder="Search devices by name, OS, browser, IP, action, username..." />
+        </div>
+        <div class="history-toolbar-actions">
+          <select id="deviceTypeFilter" class="history-select-filter">
+            <option value="all">All Devices</option>
+            <option value="online">Online Now</option>
+            <option value="mobile">Mobile Devices</option>
+            <option value="desktop">Desktop Terminals</option>
+            <option value="tablet">Tablets</option>
+          </select>
+          <button id="clearAllHistoryBtn" class="btn-vault-action btn-danger" title="Purge all login audit records">
+            🗑️ Clear All
+          </button>
+        </div>
+      </div>
+
+      <!-- Grouped Device Cards List -->
+      <div id="devicesList" class="devices-list">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <!-- Empty State -->
+      <div id="emptyHistoryState" class="empty-history-state hidden">
+        <div class="empty-icon">📟</div>
+        <div class="empty-title">No matching login devices found</div>
+        <div class="empty-desc">No login sessions have been recorded or all matching logs have been cleared.</div>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/history.js"></script>
+</body>
+</html>

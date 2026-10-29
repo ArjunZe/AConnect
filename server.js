@@ -72,6 +72,235 @@ function addToGalleryManifest(entry) {
   }
 }
 
+const LOGIN_HISTORY_PATH = process.env.LOGIN_HISTORY_PATH || path.join(DATA_DIR, 'login-history.json');
+
+function getLoginHistory() {
+  try {
+    if (fs.existsSync(LOGIN_HISTORY_PATH)) {
+      const data = fs.readFileSync(LOGIN_HISTORY_PATH, 'utf8');
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('Error reading login history:', e);
+  }
+  return [];
+}
+
+function saveLoginHistory(list) {
+  try {
+    fs.writeFile(LOGIN_HISTORY_PATH, JSON.stringify(list, null, 2), (err) => {
+      if (err) console.warn('Error writing login history:', err);
+    });
+  } catch (e) {
+    console.warn('Error writing login history:', e);
+  }
+}
+
+function parseUserAgentFallback(ua = '') {
+  let os = 'Unknown OS';
+  if (/iPad|iPhone|iPod/.test(ua)) {
+    const match = ua.match(/OS (\d+[._]\d+)/);
+    os = 'iOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
+  } else if (/Android/.test(ua)) {
+    const match = ua.match(/Android\s+([\d.]+)/);
+    os = 'Android' + (match ? ' ' + match[1] : '');
+  } else if (/Windows NT 10.0/.test(ua)) {
+    os = 'Windows 10/11';
+  } else if (/Windows NT 6.3/.test(ua)) {
+    os = 'Windows 8.1';
+  } else if (/Windows NT 6.1/.test(ua)) {
+    os = 'Windows 7';
+  } else if (/Windows/.test(ua)) {
+    os = 'Windows';
+  } else if (/Macintosh|Mac OS X/.test(ua)) {
+    const match = ua.match(/Mac OS X\s+([\d_]+)/);
+    os = 'macOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
+  } else if (/CrOS/.test(ua)) {
+    os = 'ChromeOS';
+  } else if (/Linux/.test(ua)) {
+    os = 'Linux';
+  }
+
+  let browser = 'Unknown Browser';
+  if (/Brave/i.test(ua)) {
+    browser = 'Brave';
+  } else if (/Edg\//i.test(ua)) {
+    const match = ua.match(/Edg\/([\d.]+)/);
+    browser = 'Edge' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/OPR\/|Opera/i.test(ua)) {
+    const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/);
+    browser = 'Opera' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/SamsungBrowser/i.test(ua)) {
+    const match = ua.match(/SamsungBrowser\/([\d.]+)/);
+    browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/CriOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/CriOS\/([\d.]+)/);
+    browser = 'Chrome iOS' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Chrome\/([\d.]+)/i.test(ua) && !/Mobile Safari/i.test(ua)) {
+    const match = ua.match(/Chrome\/([\d.]+)/);
+    browser = 'Chrome' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Firefox\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/Firefox\/([\d.]+)/);
+    browser = 'Firefox' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/FxiOS\/([\d.]+)/);
+    browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Safari/i.test(ua) && /Version\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/Version\/([\d.]+)/);
+    browser = 'Safari' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Chrome/i.test(ua)) {
+    browser = 'Chrome Mobile';
+  }
+
+  let deviceType = 'desktop';
+  let deviceModel = 'Desktop PC';
+
+  if (/tablet|ipad|playbook|silk/i.test(ua)) {
+    deviceType = 'tablet';
+    deviceModel = /iPad/i.test(ua) ? 'Apple iPad' : 'Tablet Device';
+  } else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry/i.test(ua)) {
+    deviceType = 'mobile';
+    if (/iPhone/i.test(ua)) {
+      deviceModel = 'Apple iPhone';
+    } else if (/Pixel/i.test(ua)) {
+      deviceModel = 'Google Pixel';
+    } else if (/Samsung|SM-|GT-/i.test(ua)) {
+      deviceModel = 'Samsung Galaxy';
+    } else {
+      deviceModel = 'Mobile Smartphone';
+    }
+  } else {
+    deviceType = 'desktop';
+    if (/Macintosh/i.test(ua)) {
+      deviceModel = 'Apple Mac';
+    } else if (/Windows/i.test(ua)) {
+      deviceModel = 'Windows PC';
+    } else if (/Linux/i.test(ua)) {
+      deviceModel = 'Linux Workstation';
+    }
+  }
+
+  const deviceName = `${deviceModel} (${os} • ${browser})`;
+  return {
+    deviceName,
+    deviceModel,
+    deviceType,
+    os,
+    browser
+  };
+}
+
+function cleanClientIp(ipStr = '') {
+  let ip = String(ipStr || '').trim();
+  if (ip.startsWith('::ffff:')) {
+    ip = ip.replace('::ffff:', '');
+  }
+  if (ip === '::1' || ip === '127.0.0.1') {
+    return '127.0.0.1 (Localhost)';
+  }
+  return ip || 'Unknown IP';
+}
+
+function recordLoginEvent(data = {}) {
+  try {
+    const list = getLoginHistory();
+    const rawIp = data.ip || '127.0.0.1';
+    const cleanIp = cleanClientIp(rawIp);
+    const now = new Date().toISOString();
+
+    const fallback = parseUserAgentFallback(data.userAgent || '');
+    const deviceModel = String(data.deviceModel || fallback.deviceModel || 'Terminal Node').trim().slice(0, 80);
+    const os = String(data.os || fallback.os || 'Unknown OS').trim().slice(0, 80);
+    const browser = String(data.browser || fallback.browser || 'Unknown Browser').trim().slice(0, 80);
+    const deviceType = ['mobile', 'tablet', 'desktop'].includes(data.deviceType) ? data.deviceType : fallback.deviceType;
+    const deviceName = String(data.deviceName || `${deviceModel} (${os} • ${browser})`).trim().slice(0, 120);
+    const screen = String(data.screen || 'N/A').trim().slice(0, 40);
+    const timezone = String(data.timezone || 'UTC').trim().slice(0, 60);
+    const language = String(data.language || 'en').trim().slice(0, 30);
+
+    let deviceId = String(data.deviceId || '').trim();
+    if (!deviceId) {
+      const fpStr = `${deviceModel}_${os}_${browser}_${screen}_${timezone}`;
+      let hash = 0;
+      for (let i = 0; i < fpStr.length; i++) {
+        hash = (hash << 5) - hash + fpStr.charCodeAt(i);
+        hash |= 0;
+      }
+      deviceId = `dev_${Math.abs(hash).toString(36)}`;
+    }
+    deviceId = deviceId.slice(0, 80);
+
+    let device = list.find((d) => d.deviceId === deviceId);
+    if (!device) {
+      device = {
+        deviceId,
+        deviceName,
+        deviceModel,
+        deviceType,
+        os,
+        browser,
+        screen,
+        timezone,
+        language,
+        firstSeen: now,
+        lastSeen: now,
+        lastIp: cleanIp,
+        totalLogins: 0,
+        logins: []
+      };
+      list.unshift(device);
+    } else {
+      device.deviceName = deviceName;
+      device.deviceModel = deviceModel;
+      device.deviceType = deviceType;
+      device.os = os;
+      device.browser = browser;
+      if (screen && screen !== 'N/A') device.screen = screen;
+      if (timezone && timezone !== 'UTC') device.timezone = timezone;
+      if (language) device.language = language;
+      device.lastSeen = now;
+      device.lastIp = cleanIp;
+    }
+
+    const action = String(data.action || 'Security Clearance Login').trim().slice(0, 80);
+    const username = String(data.username || 'Anonymous').trim().slice(0, 60);
+    const room = String(data.room || 'Default').trim().slice(0, 60);
+
+    // Debounce consecutive logs from the same device within 90 seconds unless action differs
+    const lastLogin = device.logins && device.logins[0];
+    const timeSinceLast = lastLogin ? (Date.now() - new Date(lastLogin.timestamp).getTime()) : Infinity;
+
+    if (timeSinceLast > 90 * 1000 || (lastLogin && lastLogin.action !== action)) {
+      device.totalLogins = (device.totalLogins || (device.logins ? device.logins.length : 0)) + 1;
+      if (!Array.isArray(device.logins)) device.logins = [];
+      device.logins.unshift({
+        id: 'log_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6),
+        timestamp: now,
+        ip: cleanIp,
+        action,
+        username,
+        room
+      });
+      if (device.logins.length > 80) {
+        device.logins = device.logins.slice(0, 80);
+      }
+    } else if (lastLogin) {
+      lastLogin.lastActive = now;
+      lastLogin.ip = cleanIp;
+      if (username && username !== 'Anonymous') lastLogin.username = username;
+      if (room && room !== 'Default') lastLogin.room = room;
+    }
+
+    list.sort((a, b) => new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime());
+    saveLoginHistory(list.slice(0, 200));
+    return device;
+  } catch (err) {
+    console.warn('Failed to record login event:', err);
+    return null;
+  }
+}
+
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(cors({ origin: '*' }));
 app.use(express.json({ limit: '2mb' }));
@@ -376,6 +605,107 @@ app.get('/gallery', (req, res) => {
 
 app.get('/gallery.html', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'gallery.html'));
+});
+
+// Login History & Device Audit pages
+app.get('/history', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'history.html'));
+});
+
+app.get('/history.html', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'history.html'));
+});
+
+// Secure History API: verify room/vault password before revealing device audit logs
+app.post('/api/history', (req, res) => {
+  const typedPass = String(req.body?.password || req.headers['x-history-pass'] || '').trim();
+
+  let isAuthorized = (typedPass === DEFAULT_ROOM_PASSWORD);
+  if (!isAuthorized) {
+    for (const room of rooms.values()) {
+      if (room.password && room.password === typedPass) {
+        isAuthorized = true;
+        break;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
+    return res.status(401).json({
+      ok: false,
+      error: 'Access denied: Invalid security key / password.'
+    });
+  }
+
+  const list = getLoginHistory();
+  const activeDeviceIds = new Set();
+  for (const u of users.values()) {
+    if (u.deviceId) activeDeviceIds.add(u.deviceId);
+  }
+
+  const devices = list.map((dev) => ({
+    ...dev,
+    isOnline: activeDeviceIds.has(dev.deviceId)
+  }));
+
+  const totalLogins = devices.reduce((sum, d) => sum + (d.totalLogins || (d.logins ? d.logins.length : 0)), 0);
+  const activeDevices = devices.filter((d) => d.isOnline).length;
+  const lastLogin = devices[0]?.lastSeen || null;
+
+  res.json({
+    ok: true,
+    stats: {
+      totalDevices: devices.length,
+      totalLogins,
+      activeDevices,
+      lastLogin
+    },
+    devices
+  });
+});
+
+// Record login event via HTTP
+app.post('/api/history/record', (req, res) => {
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
+  const device = recordLoginEvent({
+    ...(req.body || {}),
+    userAgent: req.headers['user-agent'] || '',
+    ip: clientIp
+  });
+  res.json({ ok: true, deviceId: device ? device.deviceId : null });
+});
+
+// Clear history endpoint (authenticated)
+app.post('/api/history/clear', (req, res) => {
+  const typedPass = String(req.body?.password || req.headers['x-history-pass'] || '').trim();
+
+  let isAuthorized = (typedPass === DEFAULT_ROOM_PASSWORD);
+  if (!isAuthorized) {
+    for (const room of rooms.values()) {
+      if (room.password && room.password === typedPass) {
+        isAuthorized = true;
+        break;
+      }
+    }
+  }
+
+  if (!isAuthorized) {
+    return res.status(401).json({
+      ok: false,
+      error: 'Access denied: Invalid security key / password.'
+    });
+  }
+
+  const targetDeviceId = req.body?.deviceId;
+  if (targetDeviceId) {
+    let list = getLoginHistory();
+    list = list.filter((d) => d.deviceId !== targetDeviceId);
+    saveLoginHistory(list);
+    return res.json({ ok: true, message: 'Device log removed.' });
+  }
+
+  saveLoginHistory([]);
+  res.json({ ok: true, message: 'All login history cleared.' });
 });
 
 // Serve chat.html as default root page
@@ -779,7 +1109,24 @@ chatNamespace.on('connection', (socket) => {
   emitOnlineCount();
   emitRoomList(socket);
 
-  socket.on('verify-lock-password', ({ password, roomName }, callback) => {
+  socket.on('register-device-login', ({ deviceInfo, roomName } = {}) => {
+    const user = users.get(socket.id);
+    const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
+    const userAgent = socket.handshake.headers['user-agent'] || '';
+    const recorded = recordLoginEvent({
+      ...(deviceInfo || {}),
+      userAgent,
+      ip: clientIp,
+      username: user?.username,
+      room: roomName || user?.room || 'Default',
+      action: 'Session Connected'
+    });
+    if (user && recorded?.deviceId) {
+      user.deviceId = recorded.deviceId;
+    }
+  });
+
+  socket.on('verify-lock-password', ({ password, roomName, deviceInfo }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
       failedPasswordAttempts.delete(socket.id);
       const user = users.get(socket.id);
@@ -791,6 +1138,21 @@ chatNamespace.on('connection', (socket) => {
         }
         emitRoomList(chatNamespace);
       }
+
+      const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
+      const userAgent = socket.handshake.headers['user-agent'] || '';
+      const recorded = recordLoginEvent({
+        ...(deviceInfo || {}),
+        userAgent,
+        ip: clientIp,
+        username: user?.username,
+        room: roomName || user?.room || 'Default',
+        action: 'Security Unlock'
+      });
+      if (user && recorded?.deviceId) {
+        user.deviceId = recorded.deviceId;
+      }
+
       callback?.({ ok: true });
     } else {
       const user = users.get(socket.id);
@@ -1135,6 +1497,21 @@ chatNamespace.on('connection', (socket) => {
       user.isLocked = false;
     }
     user.lastActivity = Date.now();
+
+    const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
+    const userAgent = socket.handshake.headers['user-agent'] || '';
+    const recorded = recordLoginEvent({
+      ...(payload.deviceInfo || {}),
+      userAgent,
+      ip: clientIp,
+      username: user.username,
+      room: targetRoom,
+      action: `Room Entry: ${targetRoom}`
+    });
+    if (recorded?.deviceId) {
+      user.deviceId = recorded.deviceId;
+    }
+
     users.set(socket.id, user);
     clearRoomCleanupTimer(targetRoom);
 

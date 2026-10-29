@@ -5,6 +5,8 @@
  * - Entering wrong password destroys all messages silently.
  */
 
+import { getDeviceInfo } from './device-detector.js';
+
 let INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 const STORAGE_KEY_LOCKED = 'aconnect_screen_locked';
 
@@ -26,8 +28,14 @@ export function setLockSocket(socket) {
     });
     socketInstance.on('connect', () => {
       socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
+      try {
+        socketInstance.emit('register-device-login', getDeviceInfo());
+      } catch (_) {}
     });
     socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
+    try {
+      socketInstance.emit('register-device-login', getDeviceInfo());
+    } catch (_) {}
   }
 }
 
@@ -335,11 +343,13 @@ export function verifyPassword(password) {
     }
   };
 
+  const devInfo = getDeviceInfo();
+
   if (socketInstance && socketInstance.connected) {
-    socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom }, handleResult);
+    socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom, deviceInfo: devInfo }, handleResult);
   } else if (socketInstance) {
     socketInstance.once('connect', () => {
-      socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom }, handleResult);
+      socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom, deviceInfo: devInfo }, handleResult);
     });
   } else {
     const storedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';

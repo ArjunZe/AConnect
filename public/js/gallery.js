@@ -1,4 +1,8 @@
 import { formatBytes } from './utils.js';
+import { getDeviceInfo, sendDeviceHeartbeat } from './device-detector.js';
+
+// Send initial device footprint when vault is visited
+sendDeviceHeartbeat('Media Vault Visited');
 
 const vaultAuthSection = document.getElementById('vaultAuthSection');
 const galleryContentSection = document.getElementById('galleryContentSection');
@@ -38,10 +42,11 @@ async function authenticateAndLoad(password) {
   }
 
   try {
+    const deviceInfo = getDeviceInfo();
     const res = await fetch('/api/gallery/images', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({ password, deviceInfo })
     });
 
     const data = await res.json().catch(() => ({}));

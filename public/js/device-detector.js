@@ -4,18 +4,29 @@
  */
 
 const STORAGE_DEVICE_KEY = 'aconnect_device_id';
+let memoryDeviceId = null;
 
 export function getDeviceId() {
+  if (memoryDeviceId) return memoryDeviceId;
+
   let id = null;
   try {
     id = localStorage.getItem(STORAGE_DEVICE_KEY);
     if (!id || typeof id !== 'string') {
+      try {
+        id = sessionStorage.getItem(STORAGE_DEVICE_KEY);
+      } catch (_) {}
+    }
+    if (!id || typeof id !== 'string') {
       id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
-      localStorage.setItem(STORAGE_DEVICE_KEY, id);
+      try { localStorage.setItem(STORAGE_DEVICE_KEY, id); } catch (_) {}
+      try { sessionStorage.setItem(STORAGE_DEVICE_KEY, id); } catch (_) {}
     }
   } catch (_) {
     id = 'dev_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
   }
+
+  memoryDeviceId = id;
   return id;
 }
 
@@ -25,7 +36,8 @@ export function getDeviceInfo() {
   const screenW = typeof window !== 'undefined' && window.screen ? window.screen.width : 0;
   const screenH = typeof window !== 'undefined' && window.screen ? window.screen.height : 0;
   const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-  const touch = typeof navigator !== 'undefined' ? (navigator.maxTouchPoints > 0) : false;
+  const maxTouch = typeof navigator !== 'undefined' && typeof navigator.maxTouchPoints === 'number' ? navigator.maxTouchPoints : 0;
+  const touch = maxTouch > 0;
 
   let timezone = 'UTC';
   try {
@@ -36,26 +48,31 @@ export function getDeviceInfo() {
 
   // 1. Operating System Detection
   let os = 'Unknown OS';
-  if (/iPad|iPhone|iPod/.test(ua)) {
+  const isIOSNative = /iPad|iPhone|iPod/i.test(ua);
+  const isIOSDesktopMode = /Macintosh|Mac OS X/i.test(ua) && touch && maxTouch > 1;
+
+  if (isIOSNative) {
     const match = ua.match(/OS (\d+[._]\d+)/);
     os = 'iOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
-  } else if (/Android/.test(ua)) {
-    const match = ua.match(/Android\s+([\d.]+)/);
+  } else if (isIOSDesktopMode) {
+    os = 'iOS (Desktop Mode)';
+  } else if (/Android/i.test(ua)) {
+    const match = ua.match(/Android\s+([\d.]+)/i);
     os = 'Android' + (match ? ' ' + match[1] : '');
-  } else if (/Windows NT 10.0/.test(ua)) {
+  } else if (/Windows NT 10.0/i.test(ua)) {
     os = 'Windows 10/11';
-  } else if (/Windows NT 6.3/.test(ua)) {
+  } else if (/Windows NT 6.3/i.test(ua)) {
     os = 'Windows 8.1';
-  } else if (/Windows NT 6.1/.test(ua)) {
+  } else if (/Windows NT 6.1/i.test(ua)) {
     os = 'Windows 7';
-  } else if (/Windows/.test(ua)) {
+  } else if (/Windows/i.test(ua)) {
     os = 'Windows';
-  } else if (/Macintosh|Mac OS X/.test(ua)) {
-    const match = ua.match(/Mac OS X\s+([\d_]+)/);
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    const match = ua.match(/Mac OS X\s+([\d_]+)/i);
     os = 'macOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
-  } else if (/CrOS/.test(ua)) {
+  } else if (/CrOS/i.test(ua)) {
     os = 'ChromeOS';
-  } else if (/Linux/.test(ua)) {
+  } else if (/Linux/i.test(ua)) {
     os = 'Linux';
   }
 
@@ -63,30 +80,35 @@ export function getDeviceInfo() {
   let browser = 'Unknown Browser';
   if (/Brave/i.test(ua) || (typeof navigator !== 'undefined' && navigator.brave)) {
     browser = 'Brave';
+  } else if (/EdgiOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/EdgiOS\/([\d.]+)/i);
+    browser = 'Edge iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Edg\//i.test(ua)) {
-    const match = ua.match(/Edg\/([\d.]+)/);
+    const match = ua.match(/Edg\/([\d.]+)/i);
     browser = 'Edge' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/OPR\/|Opera/i.test(ua)) {
-    const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/);
+    const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/i);
     browser = 'Opera' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/SamsungBrowser/i.test(ua)) {
-    const match = ua.match(/SamsungBrowser\/([\d.]+)/);
+    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
     browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/CriOS\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/CriOS\/([\d.]+)/);
+    const match = ua.match(/CriOS\/([\d.]+)/i);
     browser = 'Chrome iOS' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/FxiOS\/([\d.]+)/i);
+    browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Chrome\/([\d.]+)/i.test(ua) && !/Mobile Safari/i.test(ua)) {
-    const match = ua.match(/Chrome\/([\d.]+)/);
+    const match = ua.match(/Chrome\/([\d.]+)/i);
     browser = 'Chrome' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Firefox\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/Firefox\/([\d.]+)/);
+    const match = ua.match(/Firefox\/([\d.]+)/i);
     browser = 'Firefox' + (match ? ' ' + match[1].split('.')[0] : '');
-  } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/FxiOS\/([\d.]+)/);
-    browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Safari/i.test(ua) && /Version\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/Version\/([\d.]+)/);
+    const match = ua.match(/Version\/([\d.]+)/i);
     browser = 'Safari' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Safari/i.test(ua)) {
+    browser = 'Safari';
   } else if (/Chrome/i.test(ua)) {
     browser = 'Chrome Mobile';
   }
@@ -95,14 +117,18 @@ export function getDeviceInfo() {
   let deviceType = 'desktop';
   let deviceModel = 'Desktop PC';
 
-  if (/tablet|ipad|playbook|silk/i.test(ua) || (touch && screenW >= 768 && screenW <= 1366)) {
+  if (/iPad/i.test(ua) || (isIOSDesktopMode && screenW >= 768)) {
     deviceType = 'tablet';
-    deviceModel = /iPad/i.test(ua) ? 'Apple iPad' : 'Tablet Device';
+    deviceModel = 'Apple iPad';
+  } else if (/iPhone/i.test(ua) || (isIOSDesktopMode && screenW < 768) || (isIOSNative && !/iPad/i.test(ua))) {
+    deviceType = 'mobile';
+    deviceModel = 'Apple iPhone';
+  } else if (/tablet|playbook|silk/i.test(ua) || (touch && screenW >= 768 && screenW <= 1366)) {
+    deviceType = 'tablet';
+    deviceModel = 'Tablet Device';
   } else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry/i.test(ua) || (touch && screenW < 768)) {
     deviceType = 'mobile';
-    if (/iPhone/i.test(ua)) {
-      deviceModel = 'Apple iPhone';
-    } else if (/Pixel/i.test(ua)) {
+    if (/Pixel/i.test(ua)) {
       deviceModel = 'Google Pixel';
     } else if (/Samsung|SM-|GT-/i.test(ua)) {
       deviceModel = 'Samsung Galaxy';
@@ -136,4 +162,19 @@ export function getDeviceInfo() {
     touch,
     userAgent: ua
   };
+}
+
+/**
+ * Sends a lightweight HTTP heartbeat to register device activity on the server immediately,
+ * even if WebSockets are connecting or screen is locked.
+ */
+export async function sendDeviceHeartbeat(action = 'Session Connected') {
+  try {
+    const info = getDeviceInfo();
+    await fetch('/api/history/record', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...info, action })
+    });
+  } catch (_) {}
 }

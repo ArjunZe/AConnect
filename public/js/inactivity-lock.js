@@ -5,7 +5,7 @@
  * - Entering wrong password destroys all messages silently.
  */
 
-import { getDeviceInfo } from './device-detector.js';
+import { getDeviceInfo, sendDeviceHeartbeat } from './device-detector.js';
 
 let INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes default
 const STORAGE_KEY_LOCKED = 'aconnect_screen_locked';
@@ -26,16 +26,18 @@ export function setLockSocket(socket) {
         showLockMessageDot();
       }
     });
-    socketInstance.on('connect', () => {
+
+    const notifyDevice = () => {
       socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
       try {
-        socketInstance.emit('register-device-login', getDeviceInfo());
+        const info = getDeviceInfo();
+        socketInstance.emit('register-device-login', { deviceInfo: info, roomName: currentTargetRoom || 'Default' });
+        sendDeviceHeartbeat('Session Connected');
       } catch (_) {}
-    });
-    socketInstance.emit('user-lock-state', { isLocked: isScreenLocked() });
-    try {
-      socketInstance.emit('register-device-login', getDeviceInfo());
-    } catch (_) {}
+    };
+
+    socketInstance.on('connect', notifyDevice);
+    notifyDevice();
   }
 }
 
@@ -344,6 +346,7 @@ export function verifyPassword(password) {
   };
 
   const devInfo = getDeviceInfo();
+  sendDeviceHeartbeat('Security Clearance Attempt');
 
   if (socketInstance && socketInstance.connected) {
     socketInstance.emit('verify-lock-password', { password: cleanPass, roomName: targetRoom, deviceInfo: devInfo }, handleResult);
@@ -354,6 +357,7 @@ export function verifyPassword(password) {
   } else {
     const storedPass = localStorage.getItem('aconnect_room_pass') || 'turtle';
     if (cleanPass === storedPass || cleanPass === 'turtle') {
+      sendDeviceHeartbeat('Security Unlock (Local)');
       handleResult({ ok: true });
     } else {
       handleResult({ ok: false, error: 'Wrong password.' });

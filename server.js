@@ -12,6 +12,7 @@ const { Server } = require('socket.io');
 dotenv.config();
 
 const app = express();
+app.set('trust proxy', 1);
 const server = http.createServer(app);
 
 const PORT = Number(process.env.PORT) || 9876;
@@ -99,56 +100,66 @@ function saveLoginHistory(list) {
 
 function parseUserAgentFallback(ua = '') {
   let os = 'Unknown OS';
-  if (/iPad|iPhone|iPod/.test(ua)) {
-    const match = ua.match(/OS (\d+[._]\d+)/);
+  if (/iPad/i.test(ua)) {
+    const match = ua.match(/OS (\d+[._]\d+)/i);
     os = 'iOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
-  } else if (/Android/.test(ua)) {
-    const match = ua.match(/Android\s+([\d.]+)/);
+  } else if (/iPhone|iPod/i.test(ua)) {
+    const match = ua.match(/OS (\d+[._]\d+)/i);
+    os = 'iOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
+  } else if (/CriOS|FxiOS|EdgiOS/.test(ua)) {
+    os = 'iOS';
+  } else if (/Android/i.test(ua)) {
+    const match = ua.match(/Android\s+([\d.]+)/i);
     os = 'Android' + (match ? ' ' + match[1] : '');
-  } else if (/Windows NT 10.0/.test(ua)) {
+  } else if (/Windows NT 10.0/i.test(ua)) {
     os = 'Windows 10/11';
-  } else if (/Windows NT 6.3/.test(ua)) {
+  } else if (/Windows NT 6.3/i.test(ua)) {
     os = 'Windows 8.1';
-  } else if (/Windows NT 6.1/.test(ua)) {
+  } else if (/Windows NT 6.1/i.test(ua)) {
     os = 'Windows 7';
-  } else if (/Windows/.test(ua)) {
+  } else if (/Windows/i.test(ua)) {
     os = 'Windows';
-  } else if (/Macintosh|Mac OS X/.test(ua)) {
-    const match = ua.match(/Mac OS X\s+([\d_]+)/);
+  } else if (/Macintosh|Mac OS X/i.test(ua)) {
+    const match = ua.match(/Mac OS X\s+([\d_]+)/i);
     os = 'macOS' + (match ? ' ' + match[1].replace(/_/g, '.') : '');
-  } else if (/CrOS/.test(ua)) {
+  } else if (/CrOS/i.test(ua)) {
     os = 'ChromeOS';
-  } else if (/Linux/.test(ua)) {
+  } else if (/Linux/i.test(ua)) {
     os = 'Linux';
   }
 
   let browser = 'Unknown Browser';
   if (/Brave/i.test(ua)) {
     browser = 'Brave';
+  } else if (/EdgiOS\/([\d.]+)/i.test(ua)) {
+    const match = ua.match(/EdgiOS\/([\d.]+)/i);
+    browser = 'Edge iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Edg\//i.test(ua)) {
-    const match = ua.match(/Edg\/([\d.]+)/);
+    const match = ua.match(/Edg\/([\d.]+)/i);
     browser = 'Edge' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/OPR\/|Opera/i.test(ua)) {
-    const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/);
+    const match = ua.match(/(?:OPR|Opera)\/([\d.]+)/i);
     browser = 'Opera' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/SamsungBrowser/i.test(ua)) {
-    const match = ua.match(/SamsungBrowser\/([\d.]+)/);
+    const match = ua.match(/SamsungBrowser\/([\d.]+)/i);
     browser = 'Samsung Internet' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/CriOS\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/CriOS\/([\d.]+)/);
+    const match = ua.match(/CriOS\/([\d.]+)/i);
     browser = 'Chrome iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Chrome\/([\d.]+)/i.test(ua) && !/Mobile Safari/i.test(ua)) {
-    const match = ua.match(/Chrome\/([\d.]+)/);
+    const match = ua.match(/Chrome\/([\d.]+)/i);
     browser = 'Chrome' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Firefox\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/Firefox\/([\d.]+)/);
+    const match = ua.match(/Firefox\/([\d.]+)/i);
     browser = 'Firefox' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/FxiOS\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/FxiOS\/([\d.]+)/);
+    const match = ua.match(/FxiOS\/([\d.]+)/i);
     browser = 'Firefox iOS' + (match ? ' ' + match[1].split('.')[0] : '');
   } else if (/Safari/i.test(ua) && /Version\/([\d.]+)/i.test(ua)) {
-    const match = ua.match(/Version\/([\d.]+)/);
+    const match = ua.match(/Version\/([\d.]+)/i);
     browser = 'Safari' + (match ? ' ' + match[1].split('.')[0] : '');
+  } else if (/Safari/i.test(ua)) {
+    browser = 'Safari';
   } else if (/Chrome/i.test(ua)) {
     browser = 'Chrome Mobile';
   }
@@ -156,14 +167,18 @@ function parseUserAgentFallback(ua = '') {
   let deviceType = 'desktop';
   let deviceModel = 'Desktop PC';
 
-  if (/tablet|ipad|playbook|silk/i.test(ua)) {
+  if (/iPad/i.test(ua)) {
     deviceType = 'tablet';
-    deviceModel = /iPad/i.test(ua) ? 'Apple iPad' : 'Tablet Device';
-  } else if (/Mobile|Android|iP(hone|od)|IEMobile|BlackBerry/i.test(ua)) {
+    deviceModel = 'Apple iPad';
+  } else if (/iPhone/i.test(ua) || /CriOS|FxiOS|EdgiOS/.test(ua) || /iP(hone|od)/i.test(ua)) {
     deviceType = 'mobile';
-    if (/iPhone/i.test(ua)) {
-      deviceModel = 'Apple iPhone';
-    } else if (/Pixel/i.test(ua)) {
+    deviceModel = 'Apple iPhone';
+  } else if (/tablet|playbook|silk/i.test(ua)) {
+    deviceType = 'tablet';
+    deviceModel = 'Tablet Device';
+  } else if (/Mobile|Android|IEMobile|BlackBerry/i.test(ua)) {
+    deviceType = 'mobile';
+    if (/Pixel/i.test(ua)) {
       deviceModel = 'Google Pixel';
     } else if (/Samsung|SM-|GT-/i.test(ua)) {
       deviceModel = 'Samsung Galaxy';
@@ -370,6 +385,14 @@ app.post('/api/upload', (req, res) => {
       timestamp: new Date().toISOString()
     });
 
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
+    const userAgent = req.headers['user-agent'] || '';
+    recordLoginEvent({
+      userAgent,
+      ip: clientIp,
+      action: 'Media Upload'
+    });
+
     res.json({
       ok: true,
       imageId,
@@ -420,6 +443,16 @@ app.post('/api/gallery/images', (req, res) => {
       error: 'Access denied: Invalid security key / password.'
     });
   }
+
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
+  const userAgent = req.headers['user-agent'] || '';
+  const devData = req.body?.deviceInfo || {};
+  recordLoginEvent({
+    ...devData,
+    userAgent: devData.userAgent || userAgent,
+    ip: clientIp,
+    action: 'Media Vault Clearance'
+  });
 
   const images = getGalleryManifest();
   res.json({
@@ -636,6 +669,16 @@ app.post('/api/history', (req, res) => {
       error: 'Access denied: Invalid security key / password.'
     });
   }
+
+  const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() || req.socket.remoteAddress || req.ip;
+  const userAgent = req.headers['user-agent'] || '';
+  const devData = req.body?.deviceInfo || {};
+  recordLoginEvent({
+    ...devData,
+    userAgent: devData.userAgent || userAgent,
+    ip: clientIp,
+    action: 'Device Audit Clearance'
+  });
 
   const list = getLoginHistory();
   const activeDeviceIds = new Set();
@@ -1096,11 +1139,23 @@ function touchUserActivity(socketId) {
 
 chatNamespace.on('connection', (socket) => {
   const username = randomUsername();
+  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
+  const userAgent = socket.handshake.headers['user-agent'] || '';
+
+  // Immediately record connection so any device is tracked upon link establishment
+  const initialDevice = recordLoginEvent({
+    userAgent,
+    ip: clientIp,
+    username,
+    action: 'Terminal Connected'
+  });
+
   users.set(socket.id, {
     socketId: socket.id,
     username,
     room: null,
     isLocked: true,
+    deviceId: initialDevice ? initialDevice.deviceId : null,
     joinedAt: new Date().toISOString(),
     lastActivity: Date.now()
   });
@@ -1109,16 +1164,17 @@ chatNamespace.on('connection', (socket) => {
   emitOnlineCount();
   emitRoomList(socket);
 
-  socket.on('register-device-login', ({ deviceInfo, roomName } = {}) => {
+  socket.on('register-device-login', (payload = {}) => {
+    const devData = payload.deviceInfo || payload || {};
     const user = users.get(socket.id);
     const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
     const userAgent = socket.handshake.headers['user-agent'] || '';
     const recorded = recordLoginEvent({
-      ...(deviceInfo || {}),
-      userAgent,
+      ...devData,
+      userAgent: devData.userAgent || userAgent,
       ip: clientIp,
       username: user?.username,
-      room: roomName || user?.room || 'Default',
+      room: payload.roomName || user?.room || 'Default',
       action: 'Session Connected'
     });
     if (user && recorded?.deviceId) {
@@ -1141,9 +1197,10 @@ chatNamespace.on('connection', (socket) => {
 
       const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
       const userAgent = socket.handshake.headers['user-agent'] || '';
+      const devData = deviceInfo || {};
       const recorded = recordLoginEvent({
-        ...(deviceInfo || {}),
-        userAgent,
+        ...devData,
+        userAgent: devData.userAgent || userAgent,
         ip: clientIp,
         username: user?.username,
         room: roomName || user?.room || 'Default',
@@ -1858,6 +1915,14 @@ setInterval(() => {
 }, 10000);
 
 callNamespace.on('connection', (socket) => {
+  const clientIp = socket.handshake.headers['x-forwarded-for']?.split(',')[0].trim() || socket.handshake.address;
+  const userAgent = socket.handshake.headers['user-agent'] || '';
+  recordLoginEvent({
+    userAgent,
+    ip: clientIp,
+    action: 'Call Session Connected'
+  });
+
   socket.on('verify-lock-password', ({ password }, callback) => {
     if (verifyLockPassword(password, socket.id)) {
       callback?.({ ok: true });

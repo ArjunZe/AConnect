@@ -3,7 +3,7 @@ import { debounce, formatBytes, generateUsername, sanitizeMessage, showNotificat
 import { encryptPayload, decryptPayload, decryptMessages } from './e2ee.js';
 import { SciFiCloudEngine, getUserColor } from './sci-fi-cloud.js';
 import { initInactivityLock } from './inactivity-lock.js';
-import { getDeviceInfo } from './device-detector.js';
+import { getDeviceInfo, sendDeviceHeartbeat } from './device-detector.js';
 import {
   getVideoOnlyStream,
   createPeerConnection,
@@ -15,6 +15,7 @@ import {
 
 const socket = createSocket('/chat');
 initInactivityLock(socket);
+sendDeviceHeartbeat('Chat HUD Initialized');
 
 // UI Elements
 const usernameDisplay = document.getElementById('usernameDisplay');

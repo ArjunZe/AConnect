@@ -18,10 +18,10 @@
       <span id="historyStatusBadge" class="vault-badge">🔒 RESTRICTED AUDIT</span>
     </div>
     <div class="history-nav-actions">
-      <button id="lockHistoryBtn" class="btn-vault-action hidden" title="Conceal and lock audit data">🔒 Lock Audit</button>
-      <button id="refreshHistoryBtn" class="btn-vault-action hidden" title="Reload device logs">🔄 Refresh</button>
-      <a href="/gallery" class="btn-vault-action" title="Open Media Vault">🖼️ Media Vault</a>
-      <a href="/" class="btn-vault-action btn-vault-primary" title="Return to Chat HUD">💬 Back to Chat</a>
+      <button id="lockHistoryBtn" class="btn-vault-action btn-icon-only hidden" title="Lock & Conceal Audit" aria-label="Lock Audit">🔒</button>
+      <button id="refreshHistoryBtn" class="btn-vault-action btn-icon-only hidden" title="Reload Device Logs" aria-label="Refresh">🔄</button>
+      <a href="/gallery" class="btn-vault-action btn-icon-only" title="Open Media Vault" aria-label="Media Vault">🖼️</a>
+      <a href="/" class="btn-vault-action btn-vault-primary btn-icon-only" title="Return to Chat HUD" aria-label="Back to Chat">💬</a>
     </div>
   </header>
 
@@ -43,60 +43,134 @@
 
     <!-- History Content Screen (Revealed upon clearance) -->
     <section id="historyContentSection" class="hidden history-content-area">
-      <!-- High-level Analytics Grid -->
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">TRACKED DEVICES</div>
-          <div class="stat-value" id="statTotalDevices">0</div>
-          <div class="stat-sub">Grouped unique hardware</div>
+      <!-- Stats Chips & Pills in Rows -->
+      <div class="stats-pills-container">
+        <!-- Row 1: Primary Metrics -->
+        <div class="stats-pills-row">
+          <div class="stat-pill">
+            <span class="stat-pill-icon">💻</span>
+            <span class="stat-pill-label">Devices:</span>
+            <span class="stat-pill-value" id="statTotalDevices">0</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-pill-icon">🔑</span>
+            <span class="stat-pill-label">Logins:</span>
+            <span class="stat-pill-value" id="statTotalLogins">0</span>
+          </div>
+          <div class="stat-pill stat-pill-online">
+            <span class="stat-pill-dot"></span>
+            <span class="stat-pill-label">Online:</span>
+            <span class="stat-pill-value stat-pill-green" id="statActiveDevices">0</span>
+          </div>
+          <div class="stat-pill">
+            <span class="stat-pill-icon">⏱️</span>
+            <span class="stat-pill-label">Latest:</span>
+            <span class="stat-pill-value stat-pill-cyan" id="statLastActivity">--</span>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-label">TOTAL LOGINS</div>
-          <div class="stat-value" id="statTotalLogins">0</div>
-          <div class="stat-sub">Recorded sessions</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">ONLINE TERMINALS</div>
-          <div class="stat-value text-accent-green" id="statActiveDevices">0</div>
-          <div class="stat-sub">Active live connections</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">LATEST ACTIVITY</div>
-          <div class="stat-value text-accent-cyan" id="statLastActivity" style="font-size: 1.1rem; line-height: 1.8;">--</div>
-          <div class="stat-sub">Most recent event</div>
+
+        <!-- Row 2: Secondary Category Breakdown Pills -->
+        <div class="stats-pills-row stats-pills-sub">
+          <button type="button" class="stat-pill stat-pill-sm stat-pill-clickable" id="pillFilterMobile" title="Filter Mobile devices">
+            <span class="stat-pill-icon">📱</span>
+            <span class="stat-pill-label">Mobile:</span>
+            <span class="stat-pill-value" id="statMobileDevices">0</span>
+          </button>
+          <button type="button" class="stat-pill stat-pill-sm stat-pill-clickable" id="pillFilterDesktop" title="Filter Desktop devices">
+            <span class="stat-pill-icon">🖥️</span>
+            <span class="stat-pill-label">Desktop:</span>
+            <span class="stat-pill-value" id="statDesktopDevices">0</span>
+          </button>
+          <button type="button" class="stat-pill stat-pill-sm stat-pill-clickable" id="pillFilterTablet" title="Filter Tablet devices">
+            <span class="stat-pill-icon">📟</span>
+            <span class="stat-pill-label">Tablet:</span>
+            <span class="stat-pill-value" id="statTabletDevices">0</span>
+          </button>
+          <div class="stat-pill stat-pill-sm" title="Unique client IP footprints recorded">
+            <span class="stat-pill-icon">🌐</span>
+            <span class="stat-pill-label">Unique IPs:</span>
+            <span class="stat-pill-value" id="statUniqueIps">0</span>
+          </div>
         </div>
       </div>
 
-      <!-- Controls & Search Toolbar -->
+      <!-- Controls & Multi-Filter Toolbar (OS, IP, TZ, Type, Search) -->
       <div class="history-toolbar">
         <div class="history-search-box">
           <span class="search-icon">🔍</span>
-          <input type="text" id="historySearchInput" class="history-search-input" placeholder="Search devices by name, OS, browser, IP, action, username..." />
+          <input type="text" id="historySearchInput" class="history-search-input" placeholder="Search devices, browser, IP, action, user..." />
         </div>
-        <div class="history-toolbar-actions">
-          <select id="deviceTypeFilter" class="history-select-filter">
-            <option value="all">All Devices</option>
-            <option value="online">Online Now</option>
-            <option value="mobile">Mobile Devices</option>
-            <option value="desktop">Desktop Terminals</option>
-            <option value="tablet">Tablets</option>
-          </select>
-          <button id="clearAllHistoryBtn" class="btn-vault-action btn-danger" title="Purge all login audit records">
-            🗑️ Clear All
-          </button>
+        <div class="history-toolbar-filters">
+          <!-- OS Filter -->
+          <div class="filter-item">
+            <label for="osFilter" class="filter-tag">OS</label>
+            <select id="osFilter" class="history-select-filter">
+              <option value="all">All OS</option>
+            </select>
+          </div>
+
+          <!-- IP Filter -->
+          <div class="filter-item">
+            <label for="ipFilter" class="filter-tag">IP</label>
+            <select id="ipFilter" class="history-select-filter">
+              <option value="all">All IPs</option>
+            </select>
+          </div>
+
+          <!-- Timezone (TZ) Filter -->
+          <div class="filter-item">
+            <label for="tzFilter" class="filter-tag">TZ</label>
+            <select id="tzFilter" class="history-select-filter">
+              <option value="all">All TZ</option>
+            </select>
+          </div>
+
+          <!-- Status / Type Filter -->
+          <div class="filter-item">
+            <label for="deviceTypeFilter" class="filter-tag">TYPE</label>
+            <select id="deviceTypeFilter" class="history-select-filter">
+              <option value="all">All Types</option>
+              <option value="online">Online Now</option>
+              <option value="offline">Offline</option>
+              <option value="mobile">Mobile</option>
+              <option value="desktop">Desktop</option>
+              <option value="tablet">Tablet</option>
+            </select>
+          </div>
+
+          <!-- Action Buttons -->
+          <button id="resetFiltersBtn" class="btn-vault-action btn-icon-only" title="Reset all filters" aria-label="Reset filters">↺</button>
+          <button id="clearAllHistoryBtn" class="btn-vault-action btn-danger btn-icon-only" title="Purge all login audit records" aria-label="Clear All">🗑️</button>
         </div>
       </div>
 
-      <!-- Grouped Device Cards List -->
-      <div id="devicesList" class="devices-list">
-        <!-- Rendered dynamically -->
+      <!-- Devices Data Table -->
+      <div class="history-table-wrapper">
+        <table class="history-devices-table" id="devicesTable">
+          <thead>
+            <tr>
+              <th style="width: 86px;">Status</th>
+              <th>Device / Hardware</th>
+              <th>OS</th>
+              <th>Browser</th>
+              <th>Client IP</th>
+              <th>Timezone</th>
+              <th style="text-align: center;">Logins</th>
+              <th>Last Seen</th>
+              <th style="text-align: center; width: 90px;">Action</th>
+            </tr>
+          </thead>
+          <tbody id="devicesTableBody">
+            <!-- Dynamically populated rows -->
+          </tbody>
+        </table>
       </div>
 
       <!-- Empty State -->
       <div id="emptyHistoryState" class="empty-history-state hidden">
         <div class="empty-icon">📟</div>
         <div class="empty-title">No matching login devices found</div>
-        <div class="empty-desc">No login sessions have been recorded or all matching logs have been cleared.</div>
+        <div class="empty-desc">No login sessions match your selected filters, or all matching logs have been cleared.</div>
       </div>
     </section>
   </main>
